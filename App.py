@@ -134,8 +134,8 @@ def clean_master_data(df):
             "Group C Column": group_c_col
         }
         
-        st.sidebar.subheader("🔍 Detected Columns")
-        st.sidebar.json(debug_info)
+        # st.sidebar.subheader("🔍 Detected Columns")
+        # st.sidebar.json(debug_info)
         
         # Standardize column names with null checks
         df_clean['Farm_ID'] = df_clean[farm_id_col].astype(str).fillna("Unknown_Farm") if farm_id_col else "Unknown_Farm"
@@ -207,8 +207,8 @@ def clean_water_data(df):
             "Water Level Column": water_col
         }
         
-        st.sidebar.subheader("💧 Detected Water Columns")
-        st.sidebar.json(debug_info)
+        # st.sidebar.subheader("💧 Detected Water Columns")
+        # st.sidebar.json(debug_info)
         
         # Standardize column names
         df_clean['Date'] = pd.to_datetime(df_clean[date_col], errors='coerce') if date_col else None
