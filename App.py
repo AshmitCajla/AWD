@@ -43,7 +43,8 @@ def get_credentials():
     # Method 1: Try from Streamlit secrets (RECOMMENDED for deployment)
     try:
         if hasattr(st, 'secrets') and 'gcp_service_account' in st.secrets:
-            return st.secrets['gcp_service_account']
+            # Convert secrets to regular dict to allow modifications
+            return dict(st.secrets['gcp_service_account'])
     except Exception as e:
         st.warning(f"Could not load from Streamlit secrets: {e}")
     
@@ -102,9 +103,9 @@ def connect_to_google_sheets(sheet_url, worksheet_name=None):
                 st.error("❌ Invalid private key format")
                 return None
             
-            # Clean up any potential formatting issues
-            private_key = private_key.replace('\\n', '\n')
-            creds_dict['private_key'] = private_key
+            # Clean up any potential formatting issues and update the dict
+            creds_dict = creds_dict.copy()  # Make a copy to avoid modifying original
+            creds_dict['private_key'] = private_key.replace('\\n', '\n')
         
         # Set up credentials and scope
         scope = [
