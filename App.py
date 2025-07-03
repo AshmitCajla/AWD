@@ -41,40 +41,40 @@ WEEK_PERIODS = [
 ]
 
 def get_credentials():
-    """Get Google Sheets credentials with multiple fallback methods"""
-    
-    # Method 1: Try from Streamlit secrets (RECOMMENDED for deployment)
-    try:
-        if hasattr(st, 'secrets') and 'gcp_service_account' in st.secrets:
-            # Convert secrets to regular dict to allow modifications
-            return dict(st.secrets['gcp_service_account'])
-    except Exception as e:
-        st.warning(f"Could not load from Streamlit secrets: {e}")
-    
-    # Method 2: Try from environment variables
-    try:
-        import os
-        if 'GOOGLE_CREDENTIALS' in os.environ:
-            return json.loads(os.environ['GOOGLE_CREDENTIALS'])
-    except Exception as e:
-        st.warning(f"Could not load from environment: {e}")
-    
-    # Method 3: Try from base64 encoded environment variable
-    try:
-        import os
-        if 'GOOGLE_CREDENTIALS_B64' in os.environ:
-            decoded = base64.b64decode(os.environ['GOOGLE_CREDENTIALS_B64']).decode('utf-8')
-            return json.loads(decoded)
-    except Exception as e:
-        st.warning(f"Could not load from base64 env: {e}")
-    
-    # Method 4: Fallback to hardcoded (NOT RECOMMENDED for production)
-    st.warning("⚠️ Using hardcoded credentials - not recommended for production!")
-    return {
+    """Get properly formatted credentials"""
+    creds_dict = {
         "type": "service_account",
         "project_id": "elevated-apex-360403",
         "private_key_id": "f81bf9bb9d9e589180b639eae32d1c36f526a960",
-        "private_key": "-----BEGIN PRIVATE KEY-----\nMIIEvgIBADANBgkqhkiG9w0BAQEFAASCBKgwggSkAgEAAoIBAQDQPsw+ss5krgBu\nwtNC/KUZ5qqRXNG8fjYFLf89VFVMhX1o6PlK39UXPPxzGuNwDcd15Q0h3z/n+/3B\nYObQue9Rqq2CSU5PG4GsNbQgVdEHG9Soix+YWl2vbvWe30dU+3lrv3lq2iVAF2Ul\nPiKmyAGMXe7qracqphh3qWKQPVizoO5MgpkrxRG6/ig7H9N9iu1h2N/fcLBVdOib\nlrkeHdg7KnsaoCPZK6FhVckby4qBbjesL1Jh4BclzC7J21js+9w2xomRotVC2Rts\n+2OCF65rj6edDgyxUCkweGxd0EtCfVEMqjjk4lERHUOPawXsB0rCicmJz2BpsPqk\ngenHFvBVAgMBAAECggEAK0VNN978G3f7b4hskQABx3DCcvuEOkRIccmVvnbiVYjs\nXur/9/KsKsy5kSpeZYd7cXAjiy0CMLBQEUlTFL5577CFJqwYSUBIMNIk6E4kpbM+\n/DmSWlw2mNA32ef/wLUTTRQHhPAoqtlhozw2w4yOI85V6W4lbOt/7IdmC14v6vzu\na6xCAX5i/2wFSlwFJQE9IOfl8bjF5o5CBgsrwYcGI9/AeHPcMXQadpMdrYvjpepK\n5ewOrElIWigS2zCnGnKyg54fdFfaCj4Xntpmyk+ooJyaRaYY0WZwTDmoQi9AlMiU\nFENgtnU7tJRnBA+452Rf3Nd6d10vkBbCxz3CM5alsQKBgQD/oJZCzCNpmtZSfQCW\nz/Nj4jJyc8uoViS0TPBlf1SyKll1ZOo8JBaFJxvXULVGm4346BFma19ufz8ozmui\n7D61PL5haKoVLwdi8gDd8hcnQs3H+kbujhSj42/M9kaYDUW3KeFG1ZytqZ6FG6by\nMzJDkZfqFCZxKerZUoSFyvUr0QKBgQDQjIaIZJivYYPA2Y7Z7S+5/1BGQoqQjT4j\nEoDdMARNIJE/6Fu1oV27etKprDCHSWAdYAIk+UpU8JeUKdUFyeMc4pZB0kFsucFl\ncj3JWjWu6y+wqW4vXL0OYBn12ZKH0uZwZRASbg68yofm51QJItIBjVhItW/0yPLl\n03xpaBVRRQKBgQD6/lWrvr8iqQq5sc1LR2Hm+CmqYXJdlj+x3T3Jmu2xho2SDAVG\nCfUmxpC6qJ9ldcU/2bWEB/eLClwcmBntveOQltUj1d3ysNui1pXtVxBO13QwX9kX\n0OAJT37uE/6au6VxRCjTIVkW104zykPw2j4HRESSbTiVsp/KxRAkQnTakQKBgHqc\nlCAunMJIH9FLV7xyweOl4wlb5+Gy2Px/zXm92FmMMzmSoBC6bcRjIuYU0XdIwZSj\ntL8OPhCQX14B9jdwCfIameLa/hIxaC3/q6ntOrC7n49LHfgEmzaPc9Pidk8axNcB\n5CAhytJedOZhzTuN2FCHTId6/Pa7CmvrGjNSuW3NAoGBAMTTcVApBUYxrdNmDBb0\npihcmVWvB/C5iARUyYNQqCbWClEIR6/Tj2TdUphCRxZ4w+oDflzYAJPX1q0vQKmv\nuDEkUn9W8yacAdde8VmtkmGAYZSP/E5spwx8axMIDXZ5bvq7Zyj+nqh8U7uHZ5kC\nbqNY3Ihy7lm0x+IZQYz+Tbf6\n-----END PRIVATE KEY-----\n",
+        # Critical change - properly formatted private key with actual newlines
+        "private_key": """-----BEGIN PRIVATE KEY-----
+MIIEvgIBADANBgkqhkiG9w0BAQEFAASCBKgwggSkAgEAAoIBAQDQPsw+ss5krgBu
+wtNC/KUZ5qqRXNG8fjYFLf89VFVMhX1o6PlK39UXPPxzGuNwDcd15Q0h3z/n+/3B
+YObQue9Rqq2CSU5PG4GsNbQgVdEHG9Soix+YWl2vbvWe30dU+3lrv3lq2iVAF2Ul
+PiKmyAGMXe7qracqphh3qWKQPVizoO5MgpkrxRG6/ig7H9N9iu1h2N/fcLBVdOib
+lrkeHdg7KnsaoCPZK6FhVckby4qBbjesL1Jh4BclzC7J21js+9w2xomRotVC2Rts
++2OCF65rj6edDgyxUCkweGxd0EtCfVEMqjjk4lERHUOPawXsB0rCicmJz2BpsPqk
+genHFvBVAgMBAAECggEAK0VNN978G3f7b4hskQABx3DCcvuEOkRIccmVvnbiVYjs
+Xur/9/KsKsy5kSpeZYd7cXAjiy0CMLBQEUlTFL5577CFJqwYSUBIMNIk6E4kpbM+
+/DmSWlw2mNA32ef/wLUTTRQHhPAoqtlhozw2w4yOI85V6W4lbOt/7IdmC14v6vzu
+a6xCAX5i/2wFSlwFJQE9IOfl8bjF5o5CBgsrwYcGI9/AeHPcMXQadpMdrYvjpepK
+5ewOrElIWigS2zCnGnKyg54fdFfaCj4Xntpmyk+ooJyaRaYY0WZwTDmoQi9AlMiU
+FENgtnU7tJRnBA+452Rf3Nd6d10vkBbCxz3CM5alsQKBgQD/oJZCzCNpmtZSfQCW
+z/Nj4jJyc8uoViS0TPBlf1SyKll1ZOo8JBaFJxvXULVGm4346BFma19ufz8ozmui
+7D61PL5haKoVLwdi8gDd8hcnQs3H+kbujhSj42/M9kaYDUW3KeFG1ZytqZ6FG6by
+MzJDkZfqFCZxKerZUoSFyvUr0QKBgQDQjIaIZJivYYPA2Y7Z7S+5/1BGQoqQjT4j
+EoDdMARNIJE/6Fu1oV27etKprDCHSWAdYAIk+UpU8JeUKdUFyeMc4pZB0kFsucFl
+cj3JWjWu6y+wqW4vXL0OYBn12ZKH0uZwZRASbg68yofm51QJItIBjVhItW/0yPLl
+03xpaBVRRQKBgQD6/lWrvr8iqQq5sc1LR2Hm+CmqYXJdlj+x3T3Jmu2xho2SDAVG
+CfUmxpC6qJ9ldcU/2bWEB/eLClwcmBntveOQltUj1d3ysNui1pXtVxBO13QwX9kX
+0OAJT37uE/6au6VxRCjTIVkW104zykPw2j4HRESSbTiVsp/KxRAkQnTakQKBgHqc
+lCAunMJIH9FLV7xyweOl4wlb5+Gy2Px/zXm92FmMMzmSoBC6bcRjIuYU0XdIwZSj
+tL8OPhCQX14B9jdwCfIameLa/hIxaC3/q6ntOrC7n49LHfgEmzaPc9Pidk8axNcB
+5CAhytJedOZhzTuN2FCHTId6/Pa7CmvrGjNSuW3NAoGBAMTTcVApBUYxrdNmDBb0
+pihcmVWvB/C5iARUyYNQqCbWClEIR6/Tj2TdUphCRxZ4w+oDflzYAJPX1q0vQKmv
+uDEkUn9W8yacAdde8VmtkmGAYZSP/E5spwx8axMIDXZ5bvq7Zyj+nqh8U7uHZ5kC
+bqNY3Ihy7lm0x+IZQYz+Tbf6
+-----END PRIVATE KEY-----""",
         "client_email": "masterdata-950@elevated-apex-360403.iam.gserviceaccount.com",
         "client_id": "109484565593844446221",
         "auth_uri": "https://accounts.google.com/o/oauth2/auth",
@@ -83,6 +83,7 @@ def get_credentials():
         "client_x509_cert_url": "https://www.googleapis.com/robot/v1/metadata/x509/masterdata-950%40elevated-apex-360403.iam.gserviceaccount.com",
         "universe_domain": "googleapis.com"
     }
+    return creds_dict
 
 @st.cache_data(ttl=300)  # Cache for 5 minutes
 def connect_to_google_sheets(sheet_url, worksheet_name=None):
