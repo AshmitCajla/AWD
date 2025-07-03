@@ -40,57 +40,56 @@ WEEK_PERIODS = [
     (18, "13 October", "15 October", "2025-10-13", "2025-10-15")
 ]
 
-def get_credentials():
-    """Get properly formatted credentials"""
-    creds_dict = {
-        "type": "service_account",
-        "project_id": "elevated-apex-360403",
-        "private_key_id": "f81bf9bb9d9e589180b639eae32d1c36f526a960",
-        "private_key": """-----BEGIN PRIVATE KEY-----
-MIIEvgIBADANBgkqhkiG9w0BAQEFAASCBKgwggSkAgEAAoIBAQDQPsw+ss5krgBu
-wtNC/KUZ5qqRXNG8fjYFLf89VFVMhX1o6PlK39UXPPxzGuNwDcd15Q0h3z/n+/3B
-YObQue9Rqq2CSU5PG4GsNbQgVdEHG9Soix+YWl2vbvWe30dU+3lrv3lq2iVAF2Ul
-PiKmyAGMXe7qracqphh3qWKQPVizoO5MgpkrxRG6/ig7H9N9iu1h2N/fcLBVdOib
-lrkeHdg7KnsaoCPZK6FhVckby4qBbjesL1Jh4BclzC7J21js+9w2xomRotVC2Rts
-+2OCF65rj6edDgyxUCkweGxd0EtCfVEMqjjk4lERHUOPawXsB0rCicmJz2BpsPqk
-genHFvBVAgMBAAECggEAK0VNN978G3f7b4hskQABx3DCcvuEOkRIccmVvnbiVYjs
-Xur/9/KsKsy5kSpeZYd7cXAjiy0CMLBQEUlTFL5577CFJqwYSUBIMNIk6E4kpbM+
-/DmSWlw2mNA32ef/wLUTTRQHhPAoqtlhozw2w4yOI85V6W4lbOt/7IdmC14v6vzu
-a6xCAX5i/2wFSlwFJQE9IOfl8bjF5o5CBgsrwYcGI9/AeHPcMXQadpMdrYvjpepK
-5ewOrElIWigS2zCnGnKyg54fdFfaCj4Xntpmyk+ooJyaRaYY0WZwTDmoQi9AlMiU
-FENgtnU7tJRnBA+452Rf3Nd6d10vkBbCxz3CM5alsQKBgQD/oJZCzCNpmtZSfQCW
-z/Nj4jJyc8uoViS0TPBlf1SyKll1ZOo8JBaFJxvXULVGm4346BFma19ufz8ozmui
-7D61PL5haKoVLwdi8gDd8hcnQs3H+kbujhSj42/M9kaYDUW3KeFG1ZytqZ6FG6by
-MzJDkZfqFCZxKerZUoSFyvUr0QKBgQDQjIaIZJivYYPA2Y7Z7S+5/1BGQoqQjT4j
-EoDdMARNIJE/6Fu1oV27etKprDCHSWAdYAIk+UpU8JeUKdUFyeMc4pZB0kFsucFl
-cj3JWjWu6y+wqW4vXL0OYBn12ZKH0uZwZRASbg68yofm51QJItIBjVhItW/0yPLl
-03xpaBVRRQKBgQD6/lWrvr8iqQq5sc1LR2Hm+CmqYXJdlj+x3T3Jmu2xho2SDAVG
-CfUmxpC6qJ9ldcU/2bWEB/eLClwcmBntveOQltUj1d3ysNui1pXtVxBO13QwX9kX
-0OAJT37uE/6au6VxRCjTIVkW104zykPw2j4HRESSbTiVsp/KxRAkQnTakQKBgHqc
-lCAunMJIH9FLV7xyweOl4wlb5+Gy2Px/zXm92FmMMzmSoBC6bcRjIuYU0XdIwZSj
-tL8OPhCQX14B9jdwCfIameLa/hIxaC3/q6ntOrC7n49LHfgEmzaPc9Pidk8axNcB
-5CAhytJedOZhzTuN2FCHTId6/Pa7CmvrGjNSuW3NAoGBAMTTcVApBUYxrdNmDBb0
-pihcmVWvB/C5iARUyYNQqCbWClEIR6/Tj2TdUphCRxZ4w+oDflzYAJPX1q0vQKmv
-uDEkUn9W8yacAdde8VmtkmGAYZSP/E5spwx8axMIDXZ5bvq7Zyj+nqh8U7uHZ5kC
-bqNY3Ihy7lm0x+IZQYz+Tbf6
------END PRIVATE KEY-----""",
-        "client_email": "masterdata-950@elevated-apex-360403.iam.gserviceaccount.com",
-  "client_id": "109484565593844446221",
-  "auth_uri": "https://accounts.google.com/o/oauth2/auth",
-  "token_uri": "https://oauth2.googleapis.com/token",
-  "auth_provider_x509_cert_url": "https://www.googleapis.com/oauth2/v1/certs",
-  "client_x509_cert_url": "https://www.googleapis.com/robot/v1/metadata/x509/masterdata-950%40elevated-apex-360403.iam.gserviceaccount.com",
-  "universe_domain": "googleapis.com"
-    }
-    return creds_dict
+# def get_credentials():
+#     """Get properly formatted credentials"""
+#     creds_dict = {
+#         "type": "service_account",
+#         "project_id": "elevated-apex-360403",
+#         "private_key_id": "f81bf9bb9d9e589180b639eae32d1c36f526a960",
+#         "private_key": """-----BEGIN PRIVATE KEY-----
+# MIIEvgIBADANBgkqhkiG9w0BAQEFAASCBKgwggSkAgEAAoIBAQDQPsw+ss5krgBu
+# wtNC/KUZ5qqRXNG8fjYFLf89VFVMhX1o6PlK39UXPPxzGuNwDcd15Q0h3z/n+/3B
+# YObQue9Rqq2CSU5PG4GsNbQgVdEHG9Soix+YWl2vbvWe30dU+3lrv3lq2iVAF2Ul
+# PiKmyAGMXe7qracqphh3qWKQPVizoO5MgpkrxRG6/ig7H9N9iu1h2N/fcLBVdOib
+# lrkeHdg7KnsaoCPZK6FhVckby4qBbjesL1Jh4BclzC7J21js+9w2xomRotVC2Rts
+# +2OCF65rj6edDgyxUCkweGxd0EtCfVEMqjjk4lERHUOPawXsB0rCicmJz2BpsPqk
+# genHFvBVAgMBAAECggEAK0VNN978G3f7b4hskQABx3DCcvuEOkRIccmVvnbiVYjs
+# Xur/9/KsKsy5kSpeZYd7cXAjiy0CMLBQEUlTFL5577CFJqwYSUBIMNIk6E4kpbM+
+# /DmSWlw2mNA32ef/wLUTTRQHhPAoqtlhozw2w4yOI85V6W4lbOt/7IdmC14v6vzu
+# a6xCAX5i/2wFSlwFJQE9IOfl8bjF5o5CBgsrwYcGI9/AeHPcMXQadpMdrYvjpepK
+# 5ewOrElIWigS2zCnGnKyg54fdFfaCj4Xntpmyk+ooJyaRaYY0WZwTDmoQi9AlMiU
+# FENgtnU7tJRnBA+452Rf3Nd6d10vkBbCxz3CM5alsQKBgQD/oJZCzCNpmtZSfQCW
+# z/Nj4jJyc8uoViS0TPBlf1SyKll1ZOo8JBaFJxvXULVGm4346BFma19ufz8ozmui
+# 7D61PL5haKoVLwdi8gDd8hcnQs3H+kbujhSj42/M9kaYDUW3KeFG1ZytqZ6FG6by
+# MzJDkZfqFCZxKerZUoSFyvUr0QKBgQDQjIaIZJivYYPA2Y7Z7S+5/1BGQoqQjT4j
+# EoDdMARNIJE/6Fu1oV27etKprDCHSWAdYAIk+UpU8JeUKdUFyeMc4pZB0kFsucFl
+# cj3JWjWu6y+wqW4vXL0OYBn12ZKH0uZwZRASbg68yofm51QJItIBjVhItW/0yPLl
+# 03xpaBVRRQKBgQD6/lWrvr8iqQq5sc1LR2Hm+CmqYXJdlj+x3T3Jmu2xho2SDAVG
+# CfUmxpC6qJ9ldcU/2bWEB/eLClwcmBntveOQltUj1d3ysNui1pXtVxBO13QwX9kX
+# 0OAJT37uE/6au6VxRCjTIVkW104zykPw2j4HRESSbTiVsp/KxRAkQnTakQKBgHqc
+# lCAunMJIH9FLV7xyweOl4wlb5+Gy2Px/zXm92FmMMzmSoBC6bcRjIuYU0XdIwZSj
+# tL8OPhCQX14B9jdwCfIameLa/hIxaC3/q6ntOrC7n49LHfgEmzaPc9Pidk8axNcB
+# 5CAhytJedOZhzTuN2FCHTId6/Pa7CmvrGjNSuW3NAoGBAMTTcVApBUYxrdNmDBb0
+# pihcmVWvB/C5iARUyYNQqCbWClEIR6/Tj2TdUphCRxZ4w+oDflzYAJPX1q0vQKmv
+# uDEkUn9W8yacAdde8VmtkmGAYZSP/E5spwx8axMIDXZ5bvq7Zyj+nqh8U7uHZ5kC
+# bqNY3Ihy7lm0x+IZQYz+Tbf6
+# -----END PRIVATE KEY-----""",
+#         "client_email": "masterdata-950@elevated-apex-360403.iam.gserviceaccount.com",
+#   "client_id": "109484565593844446221",
+#   "auth_uri": "https://accounts.google.com/o/oauth2/auth",
+#   "token_uri": "https://oauth2.googleapis.com/token",
+#   "auth_provider_x509_cert_url": "https://www.googleapis.com/oauth2/v1/certs",
+#   "client_x509_cert_url": "https://www.googleapis.com/robot/v1/metadata/x509/masterdata-950%40elevated-apex-360403.iam.gserviceaccount.com",
+#   "universe_domain": "googleapis.com"
+#     }
+#     return creds_dict
 
 @st.cache_data(ttl=300)  # Cache for 5 minutes
 def connect_to_google_sheets(sheet_url, worksheet_name=None):
     try:
         from google.oauth2 import service_account
-        from google.auth.transport.requests import Request
         
-        # Get credentials without duplicate token_uri
+        # Get credentials (simplified version)
         creds_dict = {
             "type": "service_account",
             "project_id": "elevated-apex-360403",
@@ -123,13 +122,12 @@ pihcmVWvB/C5iARUyYNQqCbWClEIR6/Tj2TdUphCRxZ4w+oDflzYAJPX1q0vQKmv
 uDEkUn9W8yacAdde8VmtkmGAYZSP/E5spwx8axMIDXZ5bvq7Zyj+nqh8U7uHZ5kC
 bqNY3Ihy7lm0x+IZQYz+Tbf6
 -----END PRIVATE KEY-----""",
-           "client_email": "masterdata-950@elevated-apex-360403.iam.gserviceaccount.com",
-          "client_id": "109484565593844446221",
-          "auth_uri": "https://accounts.google.com/o/oauth2/auth",
-          "token_uri": "https://oauth2.googleapis.com/token",
-          "auth_provider_x509_cert_url": "https://www.googleapis.com/oauth2/v1/certs",
-          "client_x509_cert_url": "https://www.googleapis.com/robot/v1/metadata/x509/masterdata-950%40elevated-apex-360403.iam.gserviceaccount.com",
-          "universe_domain": "googleapis.com"
+            "client_email": "masterdata-950@elevated-apex-360403.iam.gserviceaccount.com",
+            "client_id": "109484565593844446221",
+            "auth_uri": "https://accounts.google.com/o/oauth2/auth",
+            "token_uri": "https://oauth2.googleapis.com/token",
+            "auth_provider_x509_cert_url": "https://www.googleapis.com/oauth2/v1/certs",
+            "client_x509_cert_url": "https://www.googleapis.com/robot/v1/metadata/x509/masterdata-950%40elevated-apex-360403.iam.gserviceaccount.com"
         }
         
         # Define required scopes
@@ -138,22 +136,21 @@ bqNY3Ihy7lm0x+IZQYz+Tbf6
             'https://www.googleapis.com/auth/drive'
         ]
         
-        # Create credentials without duplicate token_uri
+        # Create credentials
         credentials = service_account.Credentials.from_service_account_info(
             creds_dict,
             scopes=SCOPES
         )
         
-        # Create authorized client
-        client = gspread.Client(auth=credentials)
-        client.session.timeout = 30
+        # Authorize with gspread
+        gc = gspread.authorize(credentials)
         
-        # Extract sheet ID from URL
+        # Open spreadsheet
         if 'spreadsheets/d/' in sheet_url:
             sheet_id = sheet_url.split('/d/')[1].split('/')[0]
-            sheet = client.open_by_key(sheet_id)
+            sheet = gc.open_by_key(sheet_id)
         else:
-            sheet = client.open(sheet_url)
+            sheet = gc.open(sheet_url)
         
         # Get worksheet
         worksheet = sheet.worksheet(worksheet_name) if worksheet_name else sheet.get_worksheet(0)
