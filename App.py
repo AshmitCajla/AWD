@@ -10,16 +10,7 @@ import json
 import base64
 import datetime
 import pytz
-
-# Add this to your debugging code
-current_time = datetime.datetime.now(pytz.UTC)
-st.write(f"Current server time (UTC): {current_time}")
-st.write(f"Current server timestamp: {current_time.timestamp()}")
-
-if abs(current_time.timestamp() - time.time()) > 60:
-    st.error("⚠️ WARNING: Server clock is out of sync with actual time!")
-else:
-    st.success("✅ Server clock is synchronized")
+import time
 
 # Note: Add st.set_page_config() at the very beginning of your main script file if needed
 # st.set_page_config(page_title="AWD Compliance Analysis", page_icon="🌾", layout="wide")
@@ -96,6 +87,21 @@ def get_credentials():
 @st.cache_data(ttl=300)  # Cache for 5 minutes
 def connect_to_google_sheets(sheet_url, worksheet_name=None):
     """Connect to Google Sheets and return DataFrame with improved error handling"""
+        # Add this debug code right before your Google Sheets connection
+    current_time = datetime.datetime.now(pytz.UTC)
+    st.write(f"Current server time (UTC): {current_time}")
+    st.write(f"Current server timestamp: {current_time.timestamp()}")
+    
+    time_diff = abs(current_time.timestamp() - time.time())
+    st.write(f"Time difference: {time_diff} seconds")
+    
+    if time_diff > 60:
+        st.error("""
+        ⚠️ WARNING: Server clock is out of sync with actual time!
+        This will cause 'Invalid JWT Signature' errors with Google APIs.
+        """)
+    else:
+        st.success("✅ Server clock is synchronized")
     try:
         # Get credentials using the new method
         creds_dict = get_credentials()
