@@ -46,7 +46,6 @@ def get_credentials():
         "type": "service_account",
         "project_id": "elevated-apex-360403",
         "private_key_id": "f81bf9bb9d9e589180b639eae32d1c36f526a960",
-        # Critical change - properly formatted private key with actual newlines
         "private_key": """-----BEGIN PRIVATE KEY-----
 MIIEvgIBADANBgkqhkiG9w0BAQEFAASCBKgwggSkAgEAAoIBAQDQPsw+ss5krgBu
 wtNC/KUZ5qqRXNG8fjYFLf89VFVMhX1o6PlK39UXPPxzGuNwDcd15Q0h3z/n+/3B
@@ -76,12 +75,12 @@ uDEkUn9W8yacAdde8VmtkmGAYZSP/E5spwx8axMIDXZ5bvq7Zyj+nqh8U7uHZ5kC
 bqNY3Ihy7lm0x+IZQYz+Tbf6
 -----END PRIVATE KEY-----""",
         "client_email": "masterdata-950@elevated-apex-360403.iam.gserviceaccount.com",
-        "client_id": "109484565593844446221",
-        "auth_uri": "https://accounts.google.com/o/oauth2/auth",
-        "token_uri": "https://oauth2.googleapis.com/token",
-        "auth_provider_x509_cert_url": "https://www.googleapis.com/oauth2/v1/certs",
-        "client_x509_cert_url": "https://www.googleapis.com/robot/v1/metadata/x509/masterdata-950%40elevated-apex-360403.iam.gserviceaccount.com",
-        "universe_domain": "googleapis.com"
+  "client_id": "109484565593844446221",
+  "auth_uri": "https://accounts.google.com/o/oauth2/auth",
+  "token_uri": "https://oauth2.googleapis.com/token",
+  "auth_provider_x509_cert_url": "https://www.googleapis.com/oauth2/v1/certs",
+  "client_x509_cert_url": "https://www.googleapis.com/robot/v1/metadata/x509/masterdata-950%40elevated-apex-360403.iam.gserviceaccount.com",
+  "universe_domain": "googleapis.com"
     }
     return creds_dict
 
