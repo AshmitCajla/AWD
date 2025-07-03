@@ -87,129 +87,56 @@ bqNY3Ihy7lm0x+IZQYz+Tbf6
 
 @st.cache_data(ttl=300)  # Cache for 5 minutes
 def connect_to_google_sheets(sheet_url, worksheet_name=None):
-    """Connect to Google Sheets and return DataFrame with improved error handling"""
-        # Add this debug code right before your Google Sheets connection
-    current_time = datetime.datetime.now(pytz.UTC)
-    st.write(f"Current server time (UTC): {current_time}")
-    st.write(f"Current server timestamp: {current_time.timestamp()}")
-    
-    time_diff = abs(current_time.timestamp() - time.time())
-    st.write(f"Time difference: {time_diff} seconds")
-    
-    if time_diff > 60:
-        st.error("""
-        ⚠️ WARNING: Server clock is out of sync with actual time!
-        This will cause 'Invalid JWT Signature' errors with Google APIs.
-        """)
-    else:
-        st.success("✅ Server clock is synchronized")
     try:
-        # Get credentials using the new method
+        from google.oauth2 import service_account
+        from google.auth.transport.requests import Request
+        
+        # Get properly formatted credentials
         creds_dict = get_credentials()
         
-        # Validate credentials structure
-        required_keys = ['type', 'project_id', 'private_key', 'client_email']
-        missing_keys = [key for key in required_keys if key not in creds_dict]
-        if missing_keys:
-            st.error(f"❌ Missing required credential keys: {missing_keys}")
-            return None
-        
-        # Clean up the private key (remove extra whitespace/newlines that might cause issues)
-        if 'private_key' in creds_dict:
-            private_key = creds_dict['private_key']
-            # Ensure proper formatting
-            if not private_key.startswith('-----BEGIN PRIVATE KEY-----'):
-                st.error("❌ Invalid private key format")
-                return None
-            
-            # Clean up any potential formatting issues and update the dict
-            creds_dict = creds_dict.copy()  # Make a copy to avoid modifying original
-            creds_dict['private_key'] = private_key.replace('\\n', '\n')
-        
-        # Set up credentials and scope
-        scope = [
-            'https://spreadsheets.google.com/feeds',
+        # Define required scopes
+        SCOPES = [
+            'https://www.googleapis.com/auth/spreadsheets',
             'https://www.googleapis.com/auth/drive'
         ]
         
-        # Create credentials with error handling
-        try:
-            credentials = Credentials.from_service_account_info(creds_dict, scopes=scope)
-        except Exception as cred_error:
-            st.error(f"❌ Error creating credentials: {str(cred_error)}")
-            st.error("This usually indicates an issue with the private key format or credential data")
-            return None
+        # Create credentials with explicit audience
+        credentials = service_account.Credentials.from_service_account_info(
+            creds_dict,
+            scopes=SCOPES,
+            token_uri='https://oauth2.googleapis.com/token'
+        )
         
-        # Authorize the client
-        st.write("Verifying credentials structure...")
-        st.json({k: "***REDACTED***" if "private" in k.lower() else v for k,v in creds_dict.items()})
+        # Force token refresh
+        credentials.refresh(Request())
         
-        try:
-            from google.auth.transport import requests
-            from google.oauth2 import service_account
-            
-            # Test the credentials directly
-            SCOPES = ['https://www.googleapis.com/auth/spreadsheets']
-            creds = service_account.Credentials.from_service_account_info(creds_dict, scopes=SCOPES)
-            st.success("Credentials test passed!")
-        except Exception as e:
-            st.error(f"Credentials test failed: {str(e)}")
-            
-        try:
-            gc = gspread.authorize(credentials)
-        except Exception as auth_error:
-            st.error(f"❌ Error authorizing with Google: {str(auth_error)}")
-            if "Invalid JWT Signature" in str(auth_error):
-                st.error("🔑 JWT Signature error - please check your service account credentials")
-                st.info("💡 Try regenerating your service account key from Google Cloud Console")
-            return None
+        # Create authorized client
+        client = gspread.Client(auth=credentials)
+        client.session.timeout = 30
         
-        # Open the spreadsheet
-        try:
-            if sheet_url.startswith('https://docs.google.com/spreadsheets/d/'):
-                # Extract sheet ID from URL
-                sheet_id = sheet_url.split('/d/')[1].split('/')[0]
-                sheet = gc.open_by_key(sheet_id)
-            else:
-                # Assume it's a sheet name
-                sheet = gc.open(sheet_url)
-        except Exception as sheet_error:
-            st.error(f"❌ Error opening spreadsheet: {str(sheet_error)}")
-            st.info("📋 Make sure the sheet is shared with: masterdata-950@elevated-apex-360403.iam.gserviceaccount.com")
-            return None
+        # Extract sheet ID from URL
+        if 'spreadsheets/d/' in sheet_url:
+            sheet_id = sheet_url.split('/d/')[1].split('/')[0]
+            sheet = client.open_by_key(sheet_id)
+        else:
+            sheet = client.open(sheet_url)
         
         # Get worksheet
+        worksheet = sheet.worksheet(worksheet_name) if worksheet_name else sheet.get_worksheet(0)
+        
+        # Verify access
         try:
-            if worksheet_name:
-                worksheet = sheet.worksheet(worksheet_name)
-            else:
-                worksheet = sheet.get_worksheet(0)  # First worksheet
-        except Exception as ws_error:
-            st.error(f"❌ Error accessing worksheet '{worksheet_name}': {str(ws_error)}")
-            available_sheets = [ws.title for ws in sheet.worksheets()]
-            st.info(f"📄 Available worksheets: {', '.join(available_sheets)}")
+            worksheet.row_values(1)  # Test read access
+            st.success("✅ Successfully connected to Google Sheets")
+            return worksheet
+        except Exception as e:
+            st.error(f"❌ Worksheet access error: {str(e)}")
             return None
-        
-        # Get all data
-        try:
-            data = worksheet.get_all_records()
-            df = pd.DataFrame(data)
-        except Exception as data_error:
-            st.error(f"❌ Error reading data: {str(data_error)}")
-            return None
-        
-        if df.empty:
-            st.warning("⚠️ The worksheet appears to be empty")
-            return None
-        
-        st.success(f"✅ Connected to Google Sheets: {len(df)} rows loaded from '{worksheet.title}'")
-        return df
-        
+            
     except Exception as e:
-        st.error(f"❌ Unexpected error connecting to Google Sheets: {str(e)}")
-        st.exception(e)  # Show full traceback for debugging
+        st.error(f"❌ Connection failed: {str(e)}")
         return None
-
+        
 def process_uploaded_file(uploaded_file, file_type):
     """Process uploaded files with error handling"""
     try:
