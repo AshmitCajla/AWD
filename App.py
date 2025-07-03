@@ -1,21 +1,818 @@
+# import streamlit as st
+# import pandas as pd
+# import numpy as np
+# from datetime import datetime, timedelta
+# import io
+# import gspread
+# from google.oauth2.service_account import Credentials
+# import json
 
+# st.title("🌾 AWD Compliance Analysis Dashboard")
+# st.markdown("---")
+
+# # Define week periods as per user specification
+# WEEK_PERIODS = [
+#     (1, "16 June", "22 June", "2025-06-16", "2025-06-22"),
+#     (2, "23 June", "29 June", "2025-06-23", "2025-06-29"),
+#     (3, "30 June", "6 July", "2025-06-30", "2025-07-06"),
+#     (4, "7 July", "13 July", "2025-07-07", "2025-07-13"),
+#     (5, "14 July", "20 July", "2025-07-14", "2025-07-20"),
+#     (6, "21 July", "27 July", "2025-07-21", "2025-07-27"),
+#     (7, "28 July", "3 August", "2025-07-28", "2025-08-03"),
+#     (8, "4 August", "10 August", "2025-08-04", "2025-08-10"),
+#     (9, "11 August", "17 August", "2025-08-11", "2025-08-17"),
+#     (10, "18 August", "24 August", "2025-08-18", "2025-08-24"),
+#     (11, "25 August", "31 August", "2025-08-25", "2025-08-31"),
+#     (12, "1 September", "7 September", "2025-09-01", "2025-09-07"),
+#     (13, "8 September", "14 September", "2025-09-08", "2025-09-14"),
+#     (14, "15 September", "21 September", "2025-09-15", "2025-09-21"),
+#     (15, "22 September", "28 September", "2025-09-22", "2025-09-28"),
+#     (16, "29 September", "5 October", "2025-09-29", "2025-10-05"),
+#     (17, "6 October", "12 October", "2025-10-06", "2025-10-12"),
+#     (18, "13 October", "15 October", "2025-10-13", "2025-10-15")
+# ]
+
+# @st.cache_data(ttl=300)  # Cache for 5 minutes
+# def connect_to_google_sheets(credentials_json, sheet_url, worksheet_name=None):
+#     """Connect to Google Sheets and return DataFrame"""
+#     try:
+#         # Parse credentials
+#         if isinstance(credentials_json, str):
+#             creds_dict = json.loads(credentials_json)
+#         else:
+#             creds_dict = credentials_json
+        
+#         # Set up credentials and scope
+#         scope = ['https://spreadsheets.google.com/feeds',
+#                 'https://www.googleapis.com/auth/drive']
+        
+#         credentials = Credentials.from_service_account_info(creds_dict, scopes=scope)
+#         gc = gspread.authorize(credentials)
+        
+#         # Open the spreadsheet
+#         if sheet_url.startswith('https://docs.google.com/spreadsheets/d/'):
+#             # Extract sheet ID from URL
+#             sheet_id = sheet_url.split('/d/')[1].split('/')[0]
+#             sheet = gc.open_by_key(sheet_id)
+#         else:
+#             # Assume it's a sheet name
+#             sheet = gc.open(sheet_url)
+        
+#         # Get worksheet
+#         if worksheet_name:
+#             worksheet = sheet.worksheet(worksheet_name)
+#         else:
+#             worksheet = sheet.get_worksheet(0)  # First worksheet
+        
+#         # Get all data
+#         data = worksheet.get_all_records()
+#         df = pd.DataFrame(data)
+        
+#         st.success(f"✅ Connected to Google Sheets: {len(df)} rows loaded")
+#         return df
+        
+#     except Exception as e:
+#         st.error(f"❌ Error connecting to Google Sheets: {str(e)}")
+#         return None
+
+# def process_uploaded_file(uploaded_file, file_type):
+#     """Process uploaded files with error handling"""
+#     try:
+#         if uploaded_file.name.endswith('.xlsx'):
+#             if file_type == 'master':
+#                 df = pd.read_excel(uploaded_file, sheet_name=0)
+#             else:
+#                 df = pd.read_excel(uploaded_file)
+#         else:
+#             df = pd.read_csv(uploaded_file)
+        
+#         st.success(f"✅ File loaded successfully: {len(df)} rows")
+#         return df
+#     except Exception as e:
+#         st.error(f"❌ Error loading file: {str(e)}")
+#         return None
+
+# def find_column(df, keywords, default_name=None):
+#     """Find column based on keywords with fallback"""
+#     cols = [col for col in df.columns if any(kw.lower() in col.lower() for kw in keywords)]
+#     if cols:
+#         return cols[0]
+#     return default_name
+
+# def is_positive_value(value):
+#     """Check if a value represents a positive/yes value (1, Y, Yes, etc.)"""
+#     if pd.isna(value):
+#         return False
+    
+#     # Convert to string and clean
+#     str_val = str(value).strip().upper()
+    
+#     # Check for empty or null-like values
+#     if str_val in ['', '0', '0.0', 'NO', 'N', 'FALSE', 'F', 'NAN', 'NA', 'NONE']:
+#         return False
+    
+#     # Check for positive values
+#     if str_val in ['1', '1.0', 'YES', 'Y', 'TRUE', 'T', 'X']:
+#         return True
+    
+#     return False
+
+# def clean_master_data(df):
+#     """Robust cleaning for master data - keeps all farms, treats blanks as 0"""
+#     try:
+#         df_clean = df.copy()
+        
+#         # Find columns using flexible matching - updated based on actual sheet structure
+#         farm_id_col = find_column(df_clean, ['kharif 25 farm id'], 'Farm_ID')
+#         farmer_name_col = find_column(df_clean, ['Kharif 25 Farmer Name'], 'Farmer_Name')
+#         village_col = find_column(df_clean, ['Kharif 25 Village'], 'Village')
+#         acres_col = find_column(df_clean, ['kharif 25 - awd study - acres for incentive', 'kharif 25 acres on earth', 'acres', 'acreage', 'incentive acres'], 'Acres')
+        
+#         # Exact column names as they appear in the actual sheet
+#         awd_study_col = 'Kharif 25 - AWD Study (Y/N)'
+#         group_a_col = 'Kharif 25 - AWD Study - Group A - Treatment (Y/N)'
+#         group_b_col = 'Kharif 25 - AWD Study - Group B -training only (Y/N)'
+#         group_c_col = 'Kharif 25 - AWD Study - Group C - Control (Y/N)'
+        
+#         # Check if required columns exist and show what was found
+#         missing_cols = []
+#         found_cols = []
+        
+#         for col_name, col_var in [
+#             ('AWD Study', awd_study_col),
+#             ('Group A', group_a_col), 
+#             ('Group B', group_b_col),
+#             ('Group C', group_c_col)
+#         ]:
+#             if col_var not in df_clean.columns:
+#                 missing_cols.append(f"{col_name}: '{col_var}'")
+#             else:
+#                 found_cols.append(f"{col_name}: ✅ Found")
+        
+#         # Show found columns
+#         if found_cols:
+#             st.success("Found columns: " + ", ".join(found_cols))
+        
+#         # Show what basic columns were found
+#         basic_cols_found = []
+#         if farm_id_col:
+#             basic_cols_found.append(f"Farm ID: '{farm_id_col}'")
+#         if farmer_name_col:
+#             basic_cols_found.append(f"Farmer Name: '{farmer_name_col}'")
+#         if village_col:
+#             basic_cols_found.append(f"Village: '{village_col}'")
+#         if acres_col:
+#             basic_cols_found.append(f"Acres: '{acres_col}'")
+        
+#         if basic_cols_found:
+#             st.info("Basic columns found: " + ", ".join(basic_cols_found))
+        
+#         if missing_cols:
+#             st.error(f"❌ Missing required columns:\n" + "\n".join(missing_cols))
+#             st.info("Available columns containing 'kharif' or 'awd': " + 
+#                    ", ".join([col for col in df_clean.columns if 'kharif' in col.lower() or 'awd' in col.lower()]))
+#             return None
+        
+#         # Standardize basic columns
+#         df_clean['Farm_ID'] = df_clean[farm_id_col].astype(str).fillna("Unknown_Farm") if farm_id_col else "Unknown_Farm"
+#         df_clean['Farmer_Name'] = df_clean[farmer_name_col].astype(str).fillna("Unknown_Farmer") if farmer_name_col else "Unknown_Farmer"
+#         df_clean['Village'] = df_clean[village_col].astype(str).fillna("Unknown_Village") if village_col else "Unknown_Village"
+        
+#         if acres_col:
+#             df_clean['Acres'] = pd.to_numeric(df_clean[acres_col], errors='coerce')
+#             df_clean['Acres'] = df_clean['Acres'].fillna(0).clip(lower=0)
+#         else:
+#             df_clean['Acres'] = 0
+        
+#         # Create AWD study flag but DON'T filter - keep all farms
+#         df_clean['awd_study_flag'] = df_clean[awd_study_col].apply(is_positive_value)
+#         awd_participants = df_clean['awd_study_flag'].sum()
+#         total_farms = len(df_clean)
+        
+#         st.info(f"📊 AWD Study Status: {awd_participants} participants, {total_farms - awd_participants} non-participants (keeping all {total_farms} farms)")
+        
+#         # Assign groups with hierarchical logic - but keep unassigned farms
+#         def assign_group_hierarchical(row):
+#             # Check Group A first
+#             if is_positive_value(row[group_a_col]):
+#                 return 'A'
+            
+#             # If A is not 1, check Group B
+#             if is_positive_value(row[group_b_col]):
+#                 return 'B'
+            
+#             # If B is not 1, check Group C
+#             if is_positive_value(row[group_c_col]):
+#                 return 'C'
+            
+#             # If none are 1, assign as Unassigned instead of removing
+#             return 'Unassigned'
+        
+#         df_clean['Group'] = df_clean.apply(assign_group_hierarchical, axis=1)
+        
+#         # Show group distribution (no filtering)
+#         group_counts = df_clean['Group'].value_counts()
+#         st.success(f"✅ Group Distribution: {group_counts.to_dict()}")
+        
+#         # Show sample of actual values in AWD columns for debugging
+#         st.info("📊 Sample AWD Column Values:")
+#         sample_data = df_clean[[farm_id_col, awd_study_col, group_a_col, group_b_col, group_c_col, 'Group']].head(10)
+#         st.dataframe(sample_data, use_container_width=True)
+        
+#         # Return cleaned data with only necessary columns
+#         final_df = df_clean[['Farm_ID', 'Farmer_Name', 'Village', 'Acres', 'Group']].copy()
+        
+#         # Only remove rows with completely missing Farm_ID
+#         final_df = final_df.dropna(subset=['Farm_ID'])
+#         final_df = final_df[final_df['Farm_ID'] != 'Unknown_Farm']
+        
+#         st.success(f"✅ Final clean data: {len(final_df)} farms ready for analysis")
+        
+#         return final_df
+        
+#     except Exception as e:
+#         st.error(f"❌ Error cleaning master data: {str(e)}")
+#         st.exception(e)  # Show full traceback for debugging
+#         return None
+
+# def clean_water_data(df):
+#     """Robust cleaning for water data"""
+#     try:
+#         df_clean = df.copy()
+        
+#         # Find columns
+#         date_col = find_column(df_clean, ['date'], 'Date')
+#         farm_id_col = find_column(df_clean, ['farm id', 'farm_id', 'farmid'], 'Farm_ID')
+#         pipe_id_col = find_column(df_clean, ['pipe id', 'pipe_id', 'pipe code'], 'Pipe_ID')
+#         water_col = find_column(df_clean, ['water level', 'water_level', 'depth'], 'Water_Level_mm')
+        
+#         # Standardize column names
+#         df_clean['Date'] = pd.to_datetime(df_clean[date_col], errors='coerce') if date_col else None
+#         df_clean['Farm_ID'] = df_clean[farm_id_col].astype(str) if farm_id_col else "Unknown_Farm"
+#         df_clean['Pipe_ID'] = df_clean[pipe_id_col].astype(str) if pipe_id_col else "Unknown_Pipe"
+        
+#         if water_col:
+#             df_clean['Water_Level_mm'] = pd.to_numeric(df_clean[water_col], errors='coerce')
+#         else:
+#             df_clean['Water_Level_mm'] = 0
+        
+#         # Drop rows with missing essential data
+#         df_clean = df_clean.dropna(subset=['Date', 'Farm_ID', 'Water_Level_mm'])
+        
+#         return df_clean[['Date', 'Farm_ID', 'Pipe_ID', 'Water_Level_mm']]
+        
+#     except Exception as e:
+#         st.error(f"Error cleaning water data: {str(e)}")
+#         return None
+
+# def get_week_number(date, week_periods):
+#     """Get week number for a given date"""
+#     for week_num, start_str, end_str, start_iso, end_iso in week_periods:
+#         start_date = pd.to_datetime(start_iso)
+#         end_date = pd.to_datetime(end_iso)
+#         if start_date <= date <= end_date:
+#             return week_num
+#     return None
+
+# def analyze_pipe_compliance(pipe_data):
+#     """Analyze compliance for a single pipe within a week"""
+#     if len(pipe_data) < 2:
+#         if len(pipe_data) == 1:
+#             first_date = pipe_data.iloc[0]['Date'].strftime('%d/%m')
+#             first_value = int(pipe_data.iloc[0]['Water_Level_mm'])
+#             return {
+#                 'status': '🔴 Pending',
+#                 'details': f"{first_date} ({first_value}mm), —, —",
+#                 'days_gap': 0,
+#                 'compliant': False,
+#                 'reason': 'Missing 2nd visit'
+#             }
+#         else:
+#             return {
+#                 'status': '🔴 No Data',
+#                 'details': "—, —, —",
+#                 'days_gap': 0,
+#                 'compliant': False,
+#                 'reason': 'No visits'
+#             }
+    
+#     # Sort by date
+#     pipe_data = pipe_data.sort_values('Date')
+#     first_measurement = pipe_data.iloc[0]
+#     second_measurement = pipe_data.iloc[-1]  # Use last measurement if more than 2
+    
+#     first_date = first_measurement['Date'].strftime('%d/%m')
+#     first_value = int(first_measurement['Water_Level_mm'])
+#     second_date = second_measurement['Date'].strftime('%d/%m')
+#     second_value = int(second_measurement['Water_Level_mm'])
+    
+#     days_gap = (second_measurement['Date'] - first_measurement['Date']).days
+    
+#     # Check compliance criteria
+#     both_below_200 = first_value <= 200 and second_value <= 200
+#     one_below_100 = first_value <= 100 or second_value <= 100
+#     sufficient_gap = days_gap >= 3
+    
+#     details = f"{first_date} ({first_value}mm), {second_date} ({second_value}mm), {days_gap} days"
+    
+#     if both_below_200 and one_below_100 and sufficient_gap:
+#         return {
+#             'status': '🟢 OK',
+#             'details': details,
+#             'days_gap': days_gap,
+#             'compliant': True,
+#             'reason': 'Compliant'
+#         }
+#     elif not sufficient_gap:
+#         return {
+#             'status': '🔴 Error',
+#             'details': details,
+#             'days_gap': days_gap,
+#             'compliant': False,
+#             'reason': 'Gap too short'
+#         }
+#     elif not both_below_200:
+#         return {
+#             'status': '🔴 Error',
+#             'details': details,
+#             'days_gap': days_gap,
+#             'compliant': False,
+#             'reason': 'Reading >200mm'
+#         }
+#     elif not one_below_100:
+#         return {
+#             'status': '🔴 Error',
+#             'details': details,
+#             'days_gap': days_gap,
+#             'compliant': False,
+#             'reason': 'No reading ≤100mm'
+#         }
+#     else:
+#         return {
+#             'status': '🔴 Error',
+#             'details': details,
+#             'days_gap': days_gap,
+#             'compliant': False,
+#             'reason': 'Unknown error'
+#         }
+
+# def analyze_weekly_compliance(master_df, water_df, week_periods):
+#     """Analyze compliance week by week for all farmers"""
+#     results = []
+    
+#     # Add week number to water data
+#     water_df['Week'] = water_df['Date'].apply(lambda x: get_week_number(x, week_periods))
+#     water_df = water_df.dropna(subset=['Week'])
+    
+#     # Get all weeks that have data
+#     available_weeks = sorted(water_df['Week'].unique())
+    
+#     for week_num in available_weeks:
+#         week_info = next((w for w in week_periods if w[0] == week_num), None)
+#         if not week_info:
+#             continue
+            
+#         week_data = water_df[water_df['Week'] == week_num]
+        
+#         # Group by farm
+#         for farm_id, farm_master_data in master_df.iterrows():
+#             farm_water_data = week_data[week_data['Farm_ID'] == farm_master_data['Farm_ID']]
+            
+#             if farm_water_data.empty:
+#                 # No data for this farm this week
+#                 results.append({
+#                     'Week': int(week_num),
+#                     'Week_Period': f"{week_info[1]} - {week_info[2]}",
+#                     'Village': farm_master_data['Village'],
+#                     'Farm_ID': farm_master_data['Farm_ID'],
+#                     'Farmer_Name': farm_master_data['Farmer_Name'],
+#                     'Group': farm_master_data['Group'],
+#                     'Total_Acres': farm_master_data['Acres'],
+#                     'Pipes_Installed': 0,
+#                     'Pipes_Passing': 0,
+#                     'Non_Compliant_Pipes': '',
+#                     'Proportion_Passing': 0.0,
+#                     'Eligible_Acres': 0.0,
+#                     'Amount_to_Pay_Rs': 0.0,
+#                     'Pipe_Details': 'No data this week',
+#                     'Comments': 'No pipe data'
+#                 })
+#                 continue
+            
+#             # Analyze each pipe for this farm in this week
+#             pipe_details = []
+#             pipes_installed = 0
+#             pipes_passing = 0
+#             non_compliant_pipes = []
+            
+#             for pipe_id, pipe_data in farm_water_data.groupby('Pipe_ID'):
+#                 pipes_installed += 1
+#                 compliance_result = analyze_pipe_compliance(pipe_data)
+                
+#                 pipe_detail = f"{pipe_id}: {compliance_result['details']} {compliance_result['status']}"
+#                 pipe_details.append(pipe_detail)
+                
+#                 if compliance_result['compliant']:
+#                     pipes_passing += 1
+#                 else:
+#                     non_compliant_pipes.append(f"{pipe_id} ({compliance_result['reason']})")
+            
+#             # Calculate metrics
+#             proportion_passing = pipes_passing / pipes_installed if pipes_installed > 0 else 0
+#             eligible_acres = proportion_passing * farm_master_data['Acres']
+            
+#             # Payment only for Group A
+#             if farm_master_data['Group'] == 'A':
+#                 amount_to_pay = eligible_acres * 300
+#             else:
+#                 amount_to_pay = 0
+            
+#             results.append({
+#                 'Week': int(week_num),
+#                 'Week_Period': f"{week_info[1]} - {week_info[2]}",
+#                 'Village': farm_master_data['Village'],
+#                 'Farm_ID': farm_master_data['Farm_ID'],
+#                 'Farmer_Name': farm_master_data['Farmer_Name'],
+#                 'Group': farm_master_data['Group'],
+#                 'Total_Acres': farm_master_data['Acres'],
+#                 'Pipes_Installed': pipes_installed,
+#                 'Pipes_Passing': pipes_passing,
+#                 'Non_Compliant_Pipes': '; '.join(non_compliant_pipes) if non_compliant_pipes else '',
+#                 'Proportion_Passing': proportion_passing,
+#                 'Eligible_Acres': round(eligible_acres, 2),
+#                 'Amount_to_Pay_Rs': round(amount_to_pay, 0),
+#                 'Pipe_Details': '\n'.join(pipe_details),
+#                 'Comments': f"Week {week_num} analysis"
+#             })
+    
+#     return pd.DataFrame(results)
+
+# # Main App Interface
+# st.sidebar.header("🔗 Google Sheets Configuration")
+
+# # Google Sheets Configuration
+# with st.sidebar.expander("🔑 Google Sheets Setup", expanded=True):
+#     st.markdown("""
+#     **Setup Instructions:**
+#     1. ✅ Service Account: `masterdata-950@elevated-apex-360403.iam.gserviceaccount.com`
+#     2. Share your Google Sheet with the email above (Editor access)
+#     3. Enter your Google Sheets URL below
+#     """)
+    
+#     # Hardcoded credentials
+#     credentials_dict = {
+#         "type": "service_account",
+#         "project_id": "elevated-apex-360403",
+#         "private_key_id": "f81bf9bb9d9e589180b639eae32d1c36f526a960",
+#         "private_key": "-----BEGIN PRIVATE KEY-----\nMIIEvgIBADANBgkqhkiG9w0BAQEFAASCBKgwggSkAgEAAoIBAQDQPsw+ss5krgBu\nwtNC/KUZ5qqRXNG8fjYFLf89VFVMhX1o6PlK39UXPPxzGuNwDcd15Q0h3z/n+/3B\nYObQue9Rqq2CSU5PG4GsNbQgVdEHG9Soix+YWl2vbvWe30dU+3lrv3lq2iVAF2Ul\nPiKmyAGMXe7qracqphh3qWKQPVizoO5MgpkrxRG6/ig7H9N9iu1h2N/fcLBVdOib\nlrkeHdg7KnsaoCPZK6FhVckby4qBbjesL1Jh4BclzC7J21js+9w2xomRotVC2Rts\n+2OCF65rj6edDgyxUCkweGxd0EtCfVEMqjjk4lERHUOPawXsB0rCicmJz2BpsPqk\ngenHFvBVAgMBAAECggEAK0VNN978G3f7b4hskQABx3DCcvuEOkRIccmVvnbiVYjs\nXur/9/KsKsy5kSpeZYd7cXAjiy0CMLBQEUlTFL5577CFJqwYSUBIMNIk6E4kpbM+\n/DmSWlw2mNA32ef/wLUTTRQHhPAoqtlhozw2w4yOI85V6W4lbOt/7IdmC14v6vzu\na6xCAX5i/2wFSlwFJQE9IOfl8bjF5o5CBgsrwYcGI9/AeHPcMXQadpMdrYvjpepK\n5ewOrElIWigS2zCnGnKyg54fdFfaCj4Xntpmyk+ooJyaRaYY0WZwTDmoQi9AlMiU\nFENgtnU7tJRnBA+452Rf3Nd6d10vkBbCxz3CM5alsQKBgQD/oJZCzCNpmtZSfQCW\nz/Nj4jJyc8uoViS0TPBlf1SyKll1ZOo8JBaFJxvXULVGm4346BFma19ufz8ozmui\n7D61PL5haKoVLwdi8gDd8hcnQs3H+kbujhSj42/M9kaYDUW3KeFG1ZytqZ6FG6by\nMzJDkZfqFCZxKerZUoSFyvUr0QKBgQDQjIaIZJivYYPA2Y7Z7S+5/1BGQoqQjT4j\nEoDdMARNIJE/6Fu1oV27etKprDCHSWAdYAIk+UpU8JeUKdUFyeMc4pZB0kFsucFl\ncj3JWjWu6y+wqW4vXL0OYBn12ZKH0uZwZRASbg68yofm51QJItIBjVhItW/0yPLl\n03xpaBVRRQKBgQD6/lWrvr8iqQq5sc1LR2Hm+CmqYXJdlj+x3T3Jmu2xho2SDAVG\nCfUmxpC6qJ9ldcU/2bWEB/eLClwcmBntveOQltUj1d3ysNui1pXtVxBO13QwX9kX\n0OAJT37uE/6au6VxRCjTIVkW104zykPw2j4HRESSbTiVsp/KxRAkQnTakQKBgHqc\nlCAunMJIH9FLV7xyweOl4wlb5+Gy2Px/zXm92FmMMzmSoBC6bcRjIuYU0XdIwZSj\ntL8OPhCQX14B9jdwCfIameLa/hIxaC3/q6ntOrC7n49LHfgEmzaPc9Pidk8axNcB\n5CAhytJedOZhzTuN2FCHTId6/Pa7CmvrGjNSuW3NAoGBAMTTcVApBUYxrdNmDBb0\npihcmVWvB/C5iARUyYNQqCbWClEIR6/Tj2TdUphCRxZ4w+oDflzYAJPX1q0vQKmv\nuDEkUn9W8yacAdde8VmtkmGAYZSP/E5spwx8axMIDXZ5bvq7Zyj+nqh8U7uHZ5kC\nbqNY3Ihy7lm0x+IZQYz+Tbf6\n-----END PRIVATE KEY-----\n",
+#         "client_email": "masterdata-950@elevated-apex-360403.iam.gserviceaccount.com",
+#         "client_id": "109484565593844446221",
+#         "auth_uri": "https://accounts.google.com/o/oauth2/auth",
+#         "token_uri": "https://oauth2.googleapis.com/token",
+#         "auth_provider_x509_cert_url": "https://www.googleapis.com/oauth2/v1/certs",
+#         "client_x509_cert_url": "https://www.googleapis.com/robot/v1/metadata/x509/masterdata-950%40elevated-apex-360403.iam.gserviceaccount.com",
+#         "universe_domain": "googleapis.com"
+#     }
+    
+#     sheet_url = 'https://docs.google.com/spreadsheets/d/10_bnGF7WBZ0J3aSvl8riufNbZjXAxB7wcnN3545fGzw/edit?gid=1081628845#gid=1081628845'
+    
+#     worksheet_name = st.text_input(
+#         "Worksheet Name (optional)",
+#         placeholder="Sheet1",
+#         help="Leave blank to use the first sheet"
+#     )
+    
+#     refresh_data = st.button("🔄 Refresh Master Data", help="Reload data from Google Sheets")
+
+# st.sidebar.header("📁 Water Data Upload")
+
+# # Water file upload (keeping this as file upload)
+# water_file = st.sidebar.file_uploader(
+#     "Upload Water Level Data", 
+#     type=['xlsx'],
+#     help="Upload Excel/CSV file with water measurements"
+# )
+
+# master_df = None
+# water_df = None
+
+# # Load master data from Google Sheets
+# if sheet_url and (refresh_data or 'master_df_cache' not in st.session_state):
+#     with st.spinner("Connecting to Google Sheets..."):
+#         raw_master = connect_to_google_sheets(credentials_dict, sheet_url, worksheet_name)
+    
+#     if raw_master is not None:
+#         master_df = clean_master_data(raw_master)
+#         if master_df is not None:
+#             st.session_state['master_df_cache'] = master_df
+#             st.sidebar.success(f"✅ Master data loaded: {len(master_df)} farms")
+#             st.sidebar.write(f"Groups distribution: {master_df['Group'].value_counts().to_dict()}")
+#         else:
+#             st.sidebar.error("❌ Failed to process master data")
+# elif 'master_df_cache' in st.session_state:
+#     master_df = st.session_state['master_df_cache']
+#     st.sidebar.success(f"✅ Using cached master data: {len(master_df)} farms")
+
+# # Load water data from file upload
+# if water_file:
+#     raw_water = process_uploaded_file(water_file, 'water')
+#     if raw_water is not None:
+#         water_df = clean_water_data(raw_water)
+#         if water_df is not None:
+#             st.sidebar.success(f"✅ Water data processed: {len(water_df)} measurements")
+
+# # Main Analysis
+# if master_df is not None and water_df is not None:
+    
+#     # Show data preview
+#     st.header("📋 Data Preview")
+    
+#     col1, col2 = st.columns(2)
+    
+#     with col1:
+#         st.subheader("Master Data (Google Sheets)")
+#         st.dataframe(master_df.head(), use_container_width=True)
+#         st.write(f"Total farms: {len(master_df)}")
+#         st.write("Group distribution:")
+#         st.write(master_df['Group'].value_counts())
+    
+#     with col2:
+#         st.subheader("Water Level Data (Upload)")
+#         st.dataframe(water_df.head(), use_container_width=True)
+#         st.write(f"Total measurements: {len(water_df)}")
+    
+#     # Filters
+#     st.sidebar.header("🔍 Filters")
+    
+#     # Week filter
+#     water_df_temp = water_df.copy()
+#     water_df_temp['Week'] = water_df_temp['Date'].apply(lambda x: get_week_number(x, WEEK_PERIODS))
+#     available_weeks = sorted([w for w in water_df_temp['Week'].unique() if pd.notna(w)])
+    
+#     selected_weeks = st.sidebar.multiselect(
+#         "Select Weeks",
+#         available_weeks,
+#         default=available_weeks,
+#         format_func=lambda x: f"Week {int(x)}"
+#     )
+    
+#     # Group filter
+#     available_groups = sorted(master_df['Group'].unique())
+#     selected_groups = st.sidebar.multiselect(
+#         "Select Groups",
+#         available_groups,
+#         default=available_groups
+#     )
+    
+#     # Village filter
+#     available_villages = sorted(master_df['Village'].unique())
+#     selected_villages = st.sidebar.multiselect(
+#         "Select Villages",
+#         available_villages,
+#         default=available_villages
+#     )
+    
+#     # Status filter
+#     status_options = ['All', 'Compliant Farms Only', 'Non-Compliant Farms Only', 'Group A Only']
+#     selected_status = st.sidebar.selectbox("Status Filter", status_options)
+    
+#     # Generate Analysis
+#     if st.button("📊 Analyze Weekly Compliance", type="primary", use_container_width=True):
+#         with st.spinner("Analyzing weekly compliance..."):
+#             results_df = analyze_weekly_compliance(master_df, water_df, WEEK_PERIODS)
+        
+#         if results_df is not None and not results_df.empty:
+#             # Apply filters
+#             if selected_weeks:
+#                 results_df = results_df[results_df['Week'].isin(selected_weeks)]
+#             if selected_groups:
+#                 results_df = results_df[results_df['Group'].isin(selected_groups)]
+#             if selected_villages:
+#                 results_df = results_df[results_df['Village'].isin(selected_villages)]
+            
+#             # Apply status filter
+#             if selected_status == 'Compliant Farms Only':
+#                 results_df = results_df[results_df['Proportion_Passing'] == 1.0]
+#             elif selected_status == 'Non-Compliant Farms Only':
+#                 results_df = results_df[results_df['Proportion_Passing'] < 1.0]
+#             elif selected_status == 'Group A Only':
+#                 results_df = results_df[results_df['Group'] == 'A']
+            
+#             if results_df.empty:
+#                 st.warning("No data matches the selected filters.")
+#             else:
+#                 # Display results
+#                 st.header("📊 Weekly Compliance Analysis")
+#                 st.caption(f"Showing {len(results_df)} records")
+                
+#                 # Summary metrics
+#                 col1, col2, col3, col4 = st.columns(4)
+                
+#                 with col1:
+#                     total_farmers = results_df['Farm_ID'].nunique()
+#                     st.metric("Total Farmers", total_farmers)
+                
+#                 with col2:
+#                     group_a_farmers = results_df[results_df['Group'] == 'A']['Farm_ID'].nunique()
+#                     st.metric("Group A Farmers", group_a_farmers)
+                
+#                 with col3:
+#                     total_payment = results_df[results_df['Group'] == 'A']['Amount_to_Pay_Rs'].sum()
+#                     st.metric("Total Payment (Group A)", f"₹{total_payment:,.0f}")
+                
+#                 with col4:
+#                     avg_compliance = results_df[results_df['Pipes_Installed'] > 0]['Proportion_Passing'].mean()
+#                     st.metric("Avg Compliance Rate", f"{avg_compliance:.1%}" if pd.notna(avg_compliance) else "N/A")
+                
+#                 # Display main table
+#                 st.subheader("📋 Weekly Compliance Table")
+                
+#                 # Format display dataframe
+#                 display_df = results_df.copy()
+#                 display_df['Proportion_Passing'] = (display_df['Proportion_Passing'] * 100).round(1).astype(str) + '%'
+#                 display_df['Amount_to_Pay_Rs'] = display_df['Amount_to_Pay_Rs'].apply(lambda x: f"₹{x:,.0f}" if x > 0 else "N/A")
+                
+#                 # Select columns for display
+#                 display_columns = [
+#                     'Week', 'Week_Period', 'Village', 'Farm_ID', 'Farmer_Name', 'Group',
+#                     'Total_Acres', 'Pipes_Installed', 'Pipes_Passing', 'Non_Compliant_Pipes',
+#                     'Proportion_Passing', 'Eligible_Acres', 'Amount_to_Pay_Rs', 'Comments'
+#                 ]
+                
+#                 st.dataframe(display_df[display_columns], use_container_width=True)
+                
+#                 # Pipe details section
+#                 st.subheader("🔍 Detailed Pipe Analysis")
+#                 for _, row in results_df.iterrows():
+#                     with st.expander(f"Week {row['Week']} - {row['Farm_ID']} ({row['Farmer_Name']})"):
+#                         col1, col2 = st.columns(2)
+#                         with col1:
+#                             st.write(f"**Village:** {row['Village']}")
+#                             st.write(f"**Group:** {row['Group']}")
+#                             st.write(f"**Total Acres:** {row['Total_Acres']}")
+#                             st.write(f"**Pipes Installed:** {row['Pipes_Installed']}")
+#                         with col2:
+#                             st.write(f"**Pipes Passing:** {row['Pipes_Passing']}")
+#                             st.write(f"**Proportion Passing:** {row['Proportion_Passing']:.1%}")
+#                             st.write(f"**Eligible Acres:** {row['Eligible_Acres']}")
+#                             st.write(f"**Payment:** ₹{row['Amount_to_Pay_Rs']:,.0f}")
+                        
+#                         st.write("**Pipe Details:**")
+#                         if row['Non_Compliant_Pipes']:
+#                             st.error(f"**Non-Compliant Pipes:** {row['Non_Compliant_Pipes']}")
+#                         st.text(row['Pipe_Details'])
+                
+#                 # Download option
+#                 csv = results_df.to_csv(index=False)
+#                 st.download_button(
+#                     "📥 Download Complete Results",
+#                     csv,
+#                     f"awd_weekly_compliance_analysis.csv",
+#                     "text/csv",
+#                     use_container_width=True
+#                 )
+                
+#                 # Payment summary for Group A
+#                 group_a_data = results_df[results_df['Group'] == 'A']
+#                 if not group_a_data.empty:
+#                     st.subheader("💰 Payment Summary (Group A Only)")
+#                     payment_summary = group_a_data.groupby(['Farm_ID', 'Farmer_Name', 'Village']).agg({
+#                         'Total_Acres': 'first',
+#                         'Eligible_Acres': 'sum',
+#                         'Amount_to_Pay_Rs': 'sum'
+#                     }).reset_index()
+                    
+#                     payment_summary['Amount_to_Pay_Rs'] = payment_summary['Amount_to_Pay_Rs'].apply(lambda x: f"₹{x:,.0f}")
+                    
+#                     st.dataframe(payment_summary, use_container_width=True)
+                    
+#                     payment_csv = payment_summary.to_csv(index=False)
+#                     st.download_button(
+#                         "📥 Download Payment Summary",
+#                         payment_csv,
+#                         f"awd_payment_summary.csv",
+#                         "text/csv",
+#                         use_container_width=True
+#                     )
+#         else:
+#             st.warning("No results generated. Please check your data.")
+
+# else:
+#     st.info("👆 Please configure Google Sheets connection and upload water data to begin analysis.")
+    
+#     # Show expected format
+#     st.subheader("📋 Expected Data Format")
+    
+#     col1, col2 = st.columns(2)
+    
+#     with col1:
+#         st.write("**Master Data (Google Sheets) - Actual column names:**")
+#         st.code("""
+# Required Columns (exact names from your sheet):
+# - Kharif 25 Farm ID
+# - Kharif 25 Farmer Name  
+# - Kharif 25 Village
+# - Kharif 25 - AWD Study - acres for incentive (or similar)
+# - Kharif 25 - AWD Study (Y/N)
+# - Kharif 25 - AWD Study - Group A - Treatment (Y/N)
+# - Kharif 25 - AWD Study - Group B -training only (Y/N)
+# - Kharif 25 - AWD Study - Group C - Control (Y/N)
+
+# Note: Blank cells are treated as 0 but farms are kept in analysis
+#         """)
+    
+#     with col2:
+#         st.write("**Water Level Data (Upload) should contain:**")
+#         st.code("""
+# - Date (YYYY-MM-DD format)
+# - Farm_ID (matches master data)
+# - Pipe_ID (unique pipe identifier)
+# - Water_Level_mm (numeric)
+#         """)
+
+# # Show Google Sheets setup instructions
+# with st.expander("🔧 Quick Setup Guide"):
+#     st.markdown("""
+#     **Simple 2-step setup:**
+    
+#     1. **Share Your Google Sheet:**
+#        - Open your Google Sheet with the master data
+#        - Click the "Share" button (top right)
+#        - Add this email: `masterdata-950@elevated-apex-360403.iam.gserviceaccount.com`
+#        - Give "Editor" permissions
+#        - Click "Send"
+    
+#     2. **Get Your Sheet URL:**
+#        - Copy the URL from your browser's address bar
+#        - It should look like: `https://docs.google.com/spreadsheets/d/SHEET_ID/edit`
+#        - Paste it in the field above
+    
+#     **That's it!** The credentials are already configured in the app.
+#     """)
+    
+#     st.info("💡 **Pro tip:** You can also just paste the Sheet ID (the long string in the URL) instead of the full URL.")
+
+# # Show week schedule
+# with st.expander("📅 Study Week Schedule"):
+#     week_schedule = pd.DataFrame(WEEK_PERIODS, columns=['Week', 'Start', 'End', 'Start_ISO', 'End_ISO'])
+#     st.dataframe(week_schedule[['Week', 'Start', 'End']], use_container_width=True)
+
+# # Show compliance criteria
+# with st.expander("📏 Compliance Criteria"):
+#     st.write("""
+#     **For a pipe to be compliant in a week:**
+#     1. **Two measurements required** within the week period
+#     2. **Both readings ≤ 200mm**
+#     3. **At least one reading ≤ 100mm**
+#     4. **At least 3 days gap** between measurements
+    
+#     **Status Indicators:**
+#     - 🟢 **OK**: All criteria met
+#     - 🔴 **Pending**: Missing second measurement
+#     - 🔴 **Error**: Criteria not met (gap too short, readings too high, etc.)
+    
+#     **Payment Calculation (Group A only):**
+#     - Eligible Acres = (Compliant Pipes / Total Pipes) × Total Acres
+#     - Payment = Eligible Acres × ₹300
+#     """)
+
+# # Show grouping logic
+# with st.expander("👥 Updated Grouping Logic"):
+#     st.write("""
+#     **Step 1: Keep All Farms**
+#     - ALL farms are kept in analysis regardless of AWD Study participation
+#     - Blank cells and spaces are treated as 0 but farms are NOT removed
+    
+#     **Step 2: Hierarchical Group Assignment**
+#     - If `Kharif 25 - AWD Study - Group A - Treatment (Y/N)` = 1 → **Group A**
+#     - Else if `Kharif 25 - AWD Study - Group B -training only (Y/N)` = 1 → **Group B** 
+#     - Else if `Kharif 25 - AWD Study - Group C - Control (Y/N)` = 1 → **Group C**
+#     - If none are 1 (all blank/0) → **Group "Unassigned"**
+    
+#     **Values considered as 1:** 1, 1.0, Y, YES, True, T, X
+#     **Values considered as 0:** 0, 0.0, N, NO, False, F, blank, empty spaces
+    
+#     **📝 Note:** Blank cells are treated as spaces/0 but farms are kept for analysis
+#     """)
+
+# st.markdown("---")
+# st.markdown("*AWD Compliance Analysis Dashboard v9.2 - Fixed Column Detection for Your Sheet*")
 import streamlit as st
 import pandas as pd
 import numpy as np
 from datetime import datetime, timedelta
 import io
+import gspread
+from google.oauth2.service_account import Credentials
+import json
 
-# Configure Streamlit page
-st.set_page_config(
-    page_title="AWD Compliance Analysis",
-    page_icon="🌾",
-    layout="wide"
-)
+# Note: Add st.set_page_config() at the very beginning of your main script file if needed
+# st.set_page_config(page_title="AWD Compliance Analysis", page_icon="🌾", layout="wide")
 
 st.title("🌾 AWD Compliance Analysis Dashboard")
 st.markdown("---")
 
-# Define week periods
+# Define week periods as per user specification
 WEEK_PERIODS = [
     (1, "16 June", "22 June", "2025-06-16", "2025-06-22"),
     (2, "23 June", "29 June", "2025-06-23", "2025-06-29"),
@@ -37,40 +834,55 @@ WEEK_PERIODS = [
     (18, "13 October", "15 October", "2025-10-13", "2025-10-15")
 ]
 
-@st.cache_data
-def load_sample_data():
-    """Create sample data for testing"""
-    # Sample master data
-    master_data = {
-        'Farm_ID': ['MA_BH_PA_NAVJO_PLT_10028_A', 'MA_BH_PA_NAVJO_PLT_10028_B', 'MA_BH_PA_AJIT_PLT_10000'],
-        'Farmer_Name': ['Navjot Singh', 'Navjot Singh', 'Ajit Singh'],
-        'Village': ['Manjal Khurd', 'Manjal Khurd', 'Manjal Khurd'],
-        'Acres': [7.0, 4.0, 12.0],
-        'Group': ['A', 'B', 'A']
-    }
-    
-    # Sample water level data
-    water_data = {
-        'Date': ['2025-06-17', '2025-06-20', '2025-06-17', '2025-06-19', '2025-06-18', '2025-06-21'],
-        'Farm_ID': ['MA_BH_PA_NAVJO_PLT_10028_A', 'MA_BH_PA_NAVJO_PLT_10028_A', 
-                   'MA_BH_PA_NAVJO_PLT_10028_B', 'MA_BH_PA_NAVJO_PLT_10028_B',
-                   'MA_BH_PA_AJIT_PLT_10000', 'MA_BH_PA_AJIT_PLT_10000'],
-        'Pipe_ID': ['10028A1', '10028A1', '10028B1', '10028B1', '100001', '100001'],
-        'Water_Level_mm': [180, 90, 250, 120, 150, 80]
-    }
-    
-    master_df = pd.DataFrame(master_data)
-    water_df = pd.DataFrame(water_data)
-    water_df['Date'] = pd.to_datetime(water_df['Date'])
-    
-    return master_df, water_df
+@st.cache_data(ttl=300)  # Cache for 5 minutes
+def connect_to_google_sheets(credentials_json, sheet_url, worksheet_name=None):
+    """Connect to Google Sheets and return DataFrame"""
+    try:
+        # Parse credentials
+        if isinstance(credentials_json, str):
+            creds_dict = json.loads(credentials_json)
+        else:
+            creds_dict = credentials_json
+        
+        # Set up credentials and scope
+        scope = ['https://spreadsheets.google.com/feeds',
+                'https://www.googleapis.com/auth/drive']
+        
+        credentials = Credentials.from_service_account_info(creds_dict, scopes=scope)
+        gc = gspread.authorize(credentials)
+        
+        # Open the spreadsheet
+        if sheet_url.startswith('https://docs.google.com/spreadsheets/d/'):
+            # Extract sheet ID from URL
+            sheet_id = sheet_url.split('/d/')[1].split('/')[0]
+            sheet = gc.open_by_key(sheet_id)
+        else:
+            # Assume it's a sheet name
+            sheet = gc.open(sheet_url)
+        
+        # Get worksheet
+        if worksheet_name:
+            worksheet = sheet.worksheet(worksheet_name)
+        else:
+            worksheet = sheet.get_worksheet(0)  # First worksheet
+        
+        # Get all data
+        data = worksheet.get_all_records()
+        df = pd.DataFrame(data)
+        
+        st.success(f"✅ Connected to Google Sheets: {len(df)} rows loaded")
+        return df
+        
+    except Exception as e:
+        st.error(f"❌ Error connecting to Google Sheets: {str(e)}")
+        return None
 
 def process_uploaded_file(uploaded_file, file_type):
     """Process uploaded files with error handling"""
     try:
         if uploaded_file.name.endswith('.xlsx'):
             if file_type == 'master':
-                df = pd.read_excel(uploaded_file, sheet_name=0)  # Use first sheet
+                df = pd.read_excel(uploaded_file, sheet_name=0)
             else:
                 df = pd.read_excel(uploaded_file)
         else:
@@ -89,103 +901,140 @@ def find_column(df, keywords, default_name=None):
         return cols[0]
     return default_name
 
-def convert_to_binary(series):
-    """Convert any format to binary (0/1) with robust handling"""
-    try:
-        # Convert to string, strip whitespace, and handle NaN/None
-        s = series.astype(str).str.strip().str.upper().replace(['NAN', 'NA', 'NONE', ''], '0')
-        
-        # Replace common values
-        mapping = {
-            '1': 1, '1.0': 1, 'YES': 1, 'Y': 1, 'TRUE': 1, 'T': 1, 'X': 1,
-            '0': 0, '0.0': 0, 'NO': 0, 'N': 0, 'FALSE': 0, 'F': 0
-        }
-        
-        return s.replace(mapping).fillna(0).astype(int)
-    except Exception as e:
-        st.error(f"Error converting to binary: {str(e)}")
-        return pd.Series([0] * len(series), index=series.index)
+def is_positive_value(value):
+    """Check if a value represents a positive/yes value (1, Y, Yes, etc.)"""
+    if pd.isna(value):
+        return False
+    
+    # Convert to string and clean
+    str_val = str(value).strip().upper()
+    
+    # Check for empty or null-like values
+    if str_val in ['', '0', '0.0', 'NO', 'N', 'FALSE', 'F', 'NAN', 'NA', 'NONE']:
+        return False
+    
+    # Check for positive values
+    if str_val in ['1', '1.0', 'YES', 'Y', 'TRUE', 'T', 'X']:
+        return True
+    
+    return False
 
 def clean_master_data(df):
-    """Robust cleaning for master data with better error handling"""
+    """Robust cleaning for master data - keeps all farms, treats blanks as 0"""
     try:
-        # Create a copy to avoid modifying original
         df_clean = df.copy()
         
-        # Find columns using flexible matching
-        farm_id_col = find_column(df_clean, ['farm id', 'farm_id', 'farmid'], 'Farm_ID')
-        farmer_name_col = find_column(df_clean, ['farmer name', 'farmer_name'], 'Farmer_Name')
-        village_col = find_column(df_clean, ['village'], 'Village')
-        acres_col = find_column(df_clean, ['acres', 'acreage', 'incentive acres'], 'Acres')
+        # Find columns using flexible matching - updated based on actual sheet structure
+        farm_id_col = find_column(df_clean, ['kharif 25 farm id'], 'Farm_ID')
+        farmer_name_col = find_column(df_clean, ['Kharif 25 Farmer Name'], 'Farmer_Name')
+        village_col = find_column(df_clean, ['Kharif 25 Village'], 'Village')
+        acres_col = find_column(df_clean, ['kharif 25 - awd study - acres for incentive', 'kharif 25 acres on earth', 'acres', 'acreage', 'incentive acres'], 'Acres')
         
-        # Group columns - specific to your data structure
-        group_a_col = find_column(df_clean, ['group a - treatment', 'awd study - group a'])
-        group_b_col = find_column(df_clean, ['group b - training', 'awd study - group b'])
-        group_c_col = find_column(df_clean, ['group c - control', 'awd study - group c'])
+        # Exact column names as they appear in the actual sheet
+        awd_study_col = 'Kharif 25 - AWD Study (Y/N)'
+        group_a_col = 'Kharif 25 - AWD Study - Group A - Treatment (Y/N)'
+        group_b_col = 'Kharif 25 - AWD Study - Group B -training only (Y/N)'
+        group_c_col = 'Kharif 25 - AWD Study - Group C - Control (Y/N)'
         
-        # Debug output
-        debug_info = {
-            "Farm ID Column": farm_id_col,
-            "Farmer Name Column": farmer_name_col,
-            "Village Column": village_col,
-            "Acres Column": acres_col,
-            "Group A Column": group_a_col,
-            "Group B Column": group_b_col,
-            "Group C Column": group_c_col
-        }
+        # Check if required columns exist and show what was found
+        missing_cols = []
+        found_cols = []
         
-        # st.sidebar.subheader("🔍 Detected Columns")
-        # st.sidebar.json(debug_info)
+        for col_name, col_var in [
+            ('AWD Study', awd_study_col),
+            ('Group A', group_a_col), 
+            ('Group B', group_b_col),
+            ('Group C', group_c_col)
+        ]:
+            if col_var not in df_clean.columns:
+                missing_cols.append(f"{col_name}: '{col_var}'")
+            else:
+                found_cols.append(f"{col_name}: ✅ Found")
         
-        # Standardize column names with null checks
+        # Show found columns
+        if found_cols:
+            st.success("Found columns: " + ", ".join(found_cols))
+        
+        # Show what basic columns were found
+        basic_cols_found = []
+        if farm_id_col:
+            basic_cols_found.append(f"Farm ID: '{farm_id_col}'")
+        if farmer_name_col:
+            basic_cols_found.append(f"Farmer Name: '{farmer_name_col}'")
+        if village_col:
+            basic_cols_found.append(f"Village: '{village_col}'")
+        if acres_col:
+            basic_cols_found.append(f"Acres: '{acres_col}'")
+        
+        if basic_cols_found:
+            st.info("Basic columns found: " + ", ".join(basic_cols_found))
+        
+        if missing_cols:
+            st.error(f"❌ Missing required columns:\n" + "\n".join(missing_cols))
+            st.info("Available columns containing 'kharif' or 'awd': " + 
+                   ", ".join([col for col in df_clean.columns if 'kharif' in col.lower() or 'awd' in col.lower()]))
+            return None
+        
+        # Standardize basic columns
         df_clean['Farm_ID'] = df_clean[farm_id_col].astype(str).fillna("Unknown_Farm") if farm_id_col else "Unknown_Farm"
         df_clean['Farmer_Name'] = df_clean[farmer_name_col].astype(str).fillna("Unknown_Farmer") if farmer_name_col else "Unknown_Farmer"
         df_clean['Village'] = df_clean[village_col].astype(str).fillna("Unknown_Village") if village_col else "Unknown_Village"
         
-        # Handle acres - convert to numeric with better error handling
         if acres_col:
             df_clean['Acres'] = pd.to_numeric(df_clean[acres_col], errors='coerce')
-            df_clean['Acres'] = df_clean['Acres'].fillna(0).clip(lower=0)  # Ensure non-negative
+            df_clean['Acres'] = df_clean['Acres'].fillna(0).clip(lower=0)
         else:
             df_clean['Acres'] = 0
         
-        # Handle group assignments with null checks
-        if group_a_col:
-            df_clean[group_a_col] = df_clean[group_a_col].fillna(0)
-            df_clean['Group_A'] = convert_to_binary(df_clean[group_a_col])
-        else:
-            df_clean['Group_A'] = 0
-            
-        if group_b_col:
-            df_clean[group_b_col] = df_clean[group_b_col].fillna(0)
-            df_clean['Group_B'] = convert_to_binary(df_clean[group_b_col])
-        else:
-            df_clean['Group_B'] = 0
-            
-        if group_c_col:
-            df_clean[group_c_col] = df_clean[group_c_col].fillna(0)
-            df_clean['Group_C'] = convert_to_binary(df_clean[group_c_col])
-        else:
-            df_clean['Group_C'] = 0
+        # Create AWD study flag but DON'T filter - keep all farms
+        df_clean['awd_study_flag'] = df_clean[awd_study_col].apply(is_positive_value)
+        awd_participants = df_clean['awd_study_flag'].sum()
+        total_farms = len(df_clean)
         
-        # Assign group based on flags with priority (A > B > C)
-        def assign_group(row):
-            if row['Group_A'] == 1:
+        st.info(f"📊 AWD Study Status: {awd_participants} participants, {total_farms - awd_participants} non-participants (keeping all {total_farms} farms)")
+        
+        # Assign groups with hierarchical logic - but keep unassigned farms
+        def assign_group_hierarchical(row):
+            # Check Group A first
+            if is_positive_value(row[group_a_col]):
                 return 'A'
-            elif row['Group_B'] == 1:
+            
+            # If A is not 1, check Group B
+            if is_positive_value(row[group_b_col]):
                 return 'B'
-            elif row['Group_C'] == 1:
+            
+            # If B is not 1, check Group C
+            if is_positive_value(row[group_c_col]):
                 return 'C'
-            return 'Unknown'
+            
+            # If none are 1, assign as Unassigned instead of removing
+            return 'Unassigned'
         
-        df_clean['Group'] = df_clean.apply(assign_group, axis=1)
+        df_clean['Group'] = df_clean.apply(assign_group_hierarchical, axis=1)
         
-        # Keep only essential columns
-        return df_clean[['Farm_ID', 'Farmer_Name', 'Village', 'Acres', 'Group']].dropna(subset=['Farm_ID'])
+        # Show group distribution (no filtering)
+        group_counts = df_clean['Group'].value_counts()
+        st.success(f"✅ Group Distribution: {group_counts.to_dict()}")
+        
+        # Show sample of actual values in AWD columns for debugging
+        st.info("📊 Sample AWD Column Values:")
+        sample_data = df_clean[[farm_id_col, awd_study_col, group_a_col, group_b_col, group_c_col, 'Group']].head(10)
+        st.dataframe(sample_data, use_container_width=True)
+        
+        # Return cleaned data with only necessary columns
+        final_df = df_clean[['Farm_ID', 'Farmer_Name', 'Village', 'Acres', 'Group']].copy()
+        
+        # Only remove rows with completely missing Farm_ID
+        final_df = final_df.dropna(subset=['Farm_ID'])
+        final_df = final_df[final_df['Farm_ID'] != 'Unknown_Farm']
+        
+        st.success(f"✅ Final clean data: {len(final_df)} farms ready for analysis")
+        
+        return final_df
         
     except Exception as e:
-        st.error(f"Error cleaning master data: {str(e)}")
-        st.error("Please check your input data format and try again.")
+        st.error(f"❌ Error cleaning master data: {str(e)}")
+        st.exception(e)  # Show full traceback for debugging
         return None
 
 def clean_water_data(df):
@@ -198,17 +1047,6 @@ def clean_water_data(df):
         farm_id_col = find_column(df_clean, ['farm id', 'farm_id', 'farmid'], 'Farm_ID')
         pipe_id_col = find_column(df_clean, ['pipe id', 'pipe_id', 'pipe code'], 'Pipe_ID')
         water_col = find_column(df_clean, ['water level', 'water_level', 'depth'], 'Water_Level_mm')
-        
-        # Debug output
-        debug_info = {
-            "Date Column": date_col,
-            "Farm ID Column": farm_id_col,
-            "Pipe ID Column": pipe_id_col,
-            "Water Level Column": water_col
-        }
-        
-        # st.sidebar.subheader("💧 Detected Water Columns")
-        # st.sidebar.json(debug_info)
         
         # Standardize column names
         df_clean['Date'] = pd.to_datetime(df_clean[date_col], errors='coerce') if date_col else None
@@ -229,188 +1067,262 @@ def clean_water_data(df):
         st.error(f"Error cleaning water data: {str(e)}")
         return None
 
-def assign_week(date):
-    """Assign week number based on date"""
-    if pd.isna(date):
-        return None
-    
-    date_obj = date.date() if hasattr(date, 'date') else date
-    
-    for week_num, _, _, start_date, end_date in WEEK_PERIODS:
-        start = datetime.strptime(start_date, "%Y-%m-%d").date()
-        end = datetime.strptime(end_date, "%Y-%m-%d").date()
-        if start <= date_obj <= end:
+def get_week_number(date, week_periods):
+    """Get week number for a given date"""
+    for week_num, start_str, end_str, start_iso, end_iso in week_periods:
+        start_date = pd.to_datetime(start_iso)
+        end_date = pd.to_datetime(end_iso)
+        if start_date <= date <= end_date:
             return week_num
     return None
 
-def analyze_compliance(master_df, water_df):
-    """Analyze compliance for all farms and generate both payment and monitoring tables"""
-    try:
-        # Add week to water data
-        water_df['Week'] = water_df['Date'].apply(assign_week)
-        water_df = water_df.dropna(subset=['Week'])
-        
-        # Merge data
-        merged_df = water_df.merge(master_df, on='Farm_ID', how='inner')
-        
-        payment_results = []
-        monitoring_results = []
-        
-        # Group by Farm and Week
-        for (farm_id, week), group_data in merged_df.groupby(['Farm_ID', 'Week']):
-            farm_info = group_data.iloc[0]
-            week_num = int(week)
+def analyze_pipe_compliance(pipe_data):
+    """Analyze compliance for a single pipe within a week"""
+    if len(pipe_data) < 2:
+        if len(pipe_data) == 1:
+            first_date = pipe_data.iloc[0]['Date'].strftime('%d/%m')
+            first_value = int(pipe_data.iloc[0]['Water_Level_mm'])
+            return {
+                'status': '🔴 Pending',
+                'details': f"{first_date} ({first_value}mm), —, —",
+                'days_gap': 0,
+                'compliant': False,
+                'reason': 'Missing 2nd visit'
+            }
+        else:
+            return {
+                'status': '🔴 No Data',
+                'details': "—, —, —",
+                'days_gap': 0,
+                'compliant': False,
+                'reason': 'No visits'
+            }
+    
+    # Sort by date
+    pipe_data = pipe_data.sort_values('Date')
+    first_measurement = pipe_data.iloc[0]
+    second_measurement = pipe_data.iloc[-1]  # Use last measurement if more than 2
+    
+    first_date = first_measurement['Date'].strftime('%d/%m')
+    first_value = int(first_measurement['Water_Level_mm'])
+    second_date = second_measurement['Date'].strftime('%d/%m')
+    second_value = int(second_measurement['Water_Level_mm'])
+    
+    days_gap = (second_measurement['Date'] - first_measurement['Date']).days
+    
+    # Check compliance criteria
+    both_below_200 = first_value <= 200 and second_value <= 200
+    one_below_100 = first_value <= 100 or second_value <= 100
+    sufficient_gap = days_gap >= 3
+    
+    details = f"{first_date} ({first_value}mm), {second_date} ({second_value}mm), {days_gap} days"
+    
+    if both_below_200 and one_below_100 and sufficient_gap:
+        return {
+            'status': '🟢 OK',
+            'details': details,
+            'days_gap': days_gap,
+            'compliant': True,
+            'reason': 'Compliant'
+        }
+    elif not sufficient_gap:
+        return {
+            'status': '🔴 Error',
+            'details': details,
+            'days_gap': days_gap,
+            'compliant': False,
+            'reason': 'Gap too short'
+        }
+    elif not both_below_200:
+        return {
+            'status': '🔴 Error',
+            'details': details,
+            'days_gap': days_gap,
+            'compliant': False,
+            'reason': 'Reading >200mm'
+        }
+    elif not one_below_100:
+        return {
+            'status': '🔴 Error',
+            'details': details,
+            'days_gap': days_gap,
+            'compliant': False,
+            'reason': 'No reading ≤100mm'
+        }
+    else:
+        return {
+            'status': '🔴 Error',
+            'details': details,
+            'days_gap': days_gap,
+            'compliant': False,
+            'reason': 'Unknown error'
+        }
+
+def analyze_weekly_compliance(master_df, water_df, week_periods):
+    """Analyze compliance week by week for all farmers"""
+    results = []
+    
+    # Add week number to water data
+    water_df['Week'] = water_df['Date'].apply(lambda x: get_week_number(x, week_periods))
+    water_df = water_df.dropna(subset=['Week'])
+    
+    # Get all weeks that have data
+    available_weeks = sorted(water_df['Week'].unique())
+    
+    for week_num in available_weeks:
+        week_info = next((w for w in week_periods if w[0] == week_num), None)
+        if not week_info:
+            continue
             
-            # Get week display string
-            week_display = next((f"{start} to {end}" for w, start, end, _, _ in WEEK_PERIODS if w == week_num), "")
+        week_data = water_df[water_df['Week'] == week_num]
+        
+        # Group by farm
+        for farm_id, farm_master_data in master_df.iterrows():
+            farm_water_data = week_data[week_data['Farm_ID'] == farm_master_data['Farm_ID']]
             
-            # Analyze each pipe
-            pipe_summaries = []
-            comments = []
-            total_pipes = 0
-            compliant_pipes = 0
+            if farm_water_data.empty:
+                # No data for this farm this week
+                results.append({
+                    'Week': int(week_num),
+                    'Week_Period': f"{week_info[1]} - {week_info[2]}",
+                    'Village': farm_master_data['Village'],
+                    'Farm_ID': farm_master_data['Farm_ID'],
+                    'Farmer_Name': farm_master_data['Farmer_Name'],
+                    'Group': farm_master_data['Group'],
+                    'Total_Acres': farm_master_data['Acres'],
+                    'Pipes_Installed': 0,
+                    'Pipes_Passing': 0,
+                    'Non_Compliant_Pipes': '',
+                    'Proportion_Passing': 0.0,
+                    'Eligible_Acres': 0.0,
+                    'Amount_to_Pay_Rs': 0.0,
+                    'Pipe_Details': 'No data this week',
+                    'Comments': 'No pipe data'
+                })
+                continue
             
-            for pipe_id, pipe_data in group_data.groupby('Pipe_ID'):
-                if pd.isna(pipe_id) or pipe_id == "Unknown_Pipe":
-                    continue
-                    
-                total_pipes += 1
-                pipe_data = pipe_data.sort_values('Date')
-                measurements = pipe_data['Water_Level_mm'].tolist()
-                dates = pipe_data['Date'].dt.strftime('%m/%d').tolist()
+            # Analyze each pipe for this farm in this week
+            pipe_details = []
+            pipes_installed = 0
+            pipes_passing = 0
+            non_compliant_pipes = []
+            
+            for pipe_id, pipe_data in farm_water_data.groupby('Pipe_ID'):
+                pipes_installed += 1
+                compliance_result = analyze_pipe_compliance(pipe_data)
                 
-                # Create measurement summary
-                measurement_pairs = []
-                for d, m in zip(dates, measurements):
-                    measurement_pairs.append(f"{d}({int(m)}mm)")
+                pipe_detail = f"{pipe_id}: {compliance_result['details']} {compliance_result['status']}"
+                pipe_details.append(pipe_detail)
                 
-                # Calculate gap in days if we have multiple dates
-                gap_str = ""
-                gap_days = 0
-                if len(pipe_data) >= 2:
-                    date_objs = sorted(pipe_data['Date'])
-                    gap_days = (date_objs[-1] - date_objs[0]).days
-                    gap_str = f" [{gap_days}d gap]"
-                
-                # Check compliance
-                compliance_status = "❌"
-                if len(measurements) >= 2:
-                    all_below_200 = all(m <= 200 for m in measurements)
-                    any_below_100 = any(m <= 100 for m in measurements)
-                    sufficient_gap = gap_days >= 3
-                    
-                    if all_below_200 and any_below_100 and sufficient_gap:
-                        compliance_status = "✅"
-                        compliant_pipes += 1
-                    else:
-                        # Add specific comments
-                        if not all_below_200:
-                            comments.append(f"P{pipe_id}: >200mm reading")
-                        elif not any_below_100:
-                            comments.append(f"P{pipe_id}: no <100mm reading")
-                        elif not sufficient_gap:
-                            comments.append(f"P{pipe_id}: insufficient gap")
+                if compliance_result['compliant']:
+                    pipes_passing += 1
                 else:
-                    if len(measurements) == 0:
-                        comments.append(f"P{pipe_id}: no measurements")
-                    else:
-                        comments.append(f"P{pipe_id}: only 1 measurement")
-                
-                # Create pipe summary
-                measurements_str = ", ".join(measurement_pairs)
-                pipe_summary = f"P{pipe_id}: {measurements_str}{gap_str} {compliance_status}"
-                pipe_summaries.append(pipe_summary)
+                    non_compliant_pipes.append(f"{pipe_id} ({compliance_result['reason']})")
             
-            # Join pipe summaries
-            pipe_details_str = " | ".join(pipe_summaries)
-            comments_str = "; ".join(comments) if comments else "All compliant"
+            # Calculate metrics
+            proportion_passing = pipes_passing / pipes_installed if pipes_installed > 0 else 0
+            eligible_acres = proportion_passing * farm_master_data['Acres']
             
-            # Calculate metrics for payment table
-            if total_pipes > 0:
-                compliance_rate = compliant_pipes / total_pipes
-                eligible_acres = compliance_rate * farm_info['Acres']
-                payment = eligible_acres * 300
+            # Payment only for Group A
+            if farm_master_data['Group'] == 'A':
+                amount_to_pay = eligible_acres * 300
             else:
-                compliance_rate = 0
-                eligible_acres = 0
-                payment = 0
+                amount_to_pay = 0
             
-            # Add to payment results
-            payment_results.append({
-                'Week': week_num,
-                'Village': farm_info['Village'],
-                'Farm_ID': farm_id,
-                'Farmer_Name': farm_info['Farmer_Name'],
-                'Group': farm_info['Group'],
-                'Total_Acres': farm_info['Acres'],
-                'Total_Pipes': total_pipes,
-                'Compliant_Pipes': compliant_pipes,
-                'Compliance_Rate': compliance_rate,
-                'Eligible_Acres': eligible_acres,
-                'Payment_Rs': payment
+            results.append({
+                'Week': int(week_num),
+                'Week_Period': f"{week_info[1]} - {week_info[2]}",
+                'Village': farm_master_data['Village'],
+                'Farm_ID': farm_master_data['Farm_ID'],
+                'Farmer_Name': farm_master_data['Farmer_Name'],
+                'Group': farm_master_data['Group'],
+                'Total_Acres': farm_master_data['Acres'],
+                'Pipes_Installed': pipes_installed,
+                'Pipes_Passing': pipes_passing,
+                'Non_Compliant_Pipes': '; '.join(non_compliant_pipes) if non_compliant_pipes else '',
+                'Proportion_Passing': proportion_passing,
+                'Eligible_Acres': round(eligible_acres, 2),
+                'Amount_to_Pay_Rs': round(amount_to_pay, 0),
+                'Pipe_Details': '\n'.join(pipe_details),
+                'Comments': f"Week {week_num} analysis"
             })
-            
-            # Add to monitoring results
-            monitoring_results.append({
-                'Week': week_display,
-                'Village': farm_info['Village'],
-                'Farmer_ID': farm_id,
-                'Farmer_Name': farm_info['Farmer_Name'],
-                'Group': farm_info['Group'],
-                'Acres': farm_info['Acres'],
-                'Pipe_Details': pipe_details_str,
-                'Comments': comments_str
-            })
-        
-        return (
-            pd.DataFrame(payment_results), 
-            pd.DataFrame(monitoring_results)
-        )
-        
-    except Exception as e:
-        st.error(f"Error analyzing compliance: {str(e)}")
-        return None, None
+    
+    return pd.DataFrame(results)
 
 # Main App Interface
-st.sidebar.header("📁 Data Upload")
+# st.sidebar.header("🔗 Google Sheets Configuration")
 
-# Option to use sample data
-use_sample = st.sidebar.checkbox("Use Sample Data for Testing", value=True)
+# Google Sheets Configuration
+with st.sidebar.expander("🔑 Google Sheets Setup", expanded=True):
+    # st.markdown("""
+    # **Setup Instructions:**
+    # 1. ✅ Service Account: `masterdata-950@elevated-apex-360403.iam.gserviceaccount.com`
+    # 2. Share your Google Sheet with the email above (Editor access)
+    # 3. Enter your Google Sheets URL below
+    # """)
+    
+    # Hardcoded credentials
+    credentials_dict = {
+        "type": "service_account",
+        "project_id": "elevated-apex-360403",
+        "private_key_id": "f81bf9bb9d9e589180b639eae32d1c36f526a960",
+        "private_key": "-----BEGIN PRIVATE KEY-----\nMIIEvgIBADANBgkqhkiG9w0BAQEFAASCBKgwggSkAgEAAoIBAQDQPsw+ss5krgBu\nwtNC/KUZ5qqRXNG8fjYFLf89VFVMhX1o6PlK39UXPPxzGuNwDcd15Q0h3z/n+/3B\nYObQue9Rqq2CSU5PG4GsNbQgVdEHG9Soix+YWl2vbvWe30dU+3lrv3lq2iVAF2Ul\nPiKmyAGMXe7qracqphh3qWKQPVizoO5MgpkrxRG6/ig7H9N9iu1h2N/fcLBVdOib\nlrkeHdg7KnsaoCPZK6FhVckby4qBbjesL1Jh4BclzC7J21js+9w2xomRotVC2Rts\n+2OCF65rj6edDgyxUCkweGxd0EtCfVEMqjjk4lERHUOPawXsB0rCicmJz2BpsPqk\ngenHFvBVAgMBAAECggEAK0VNN978G3f7b4hskQABx3DCcvuEOkRIccmVvnbiVYjs\nXur/9/KsKsy5kSpeZYd7cXAjiy0CMLBQEUlTFL5577CFJqwYSUBIMNIk6E4kpbM+\n/DmSWlw2mNA32ef/wLUTTRQHhPAoqtlhozw2w4yOI85V6W4lbOt/7IdmC14v6vzu\na6xCAX5i/2wFSlwFJQE9IOfl8bjF5o5CBgsrwYcGI9/AeHPcMXQadpMdrYvjpepK\n5ewOrElIWigS2zCnGnKyg54fdFfaCj4Xntpmyk+ooJyaRaYY0WZwTDmoQi9AlMiU\nFENgtnU7tJRnBA+452Rf3Nd6d10vkBbCxz3CM5alsQKBgQD/oJZCzCNpmtZSfQCW\nz/Nj4jJyc8uoViS0TPBlf1SyKll1ZOo8JBaFJxvXULVGm4346BFma19ufz8ozmui\n7D61PL5haKoVLwdi8gDd8hcnQs3H+kbujhSj42/M9kaYDUW3KeFG1ZytqZ6FG6by\nMzJDkZfqFCZxKerZUoSFyvUr0QKBgQDQjIaIZJivYYPA2Y7Z7S+5/1BGQoqQjT4j\nEoDdMARNIJE/6Fu1oV27etKprDCHSWAdYAIk+UpU8JeUKdUFyeMc4pZB0kFsucFl\ncj3JWjWu6y+wqW4vXL0OYBn12ZKH0uZwZRASbg68yofm51QJItIBjVhItW/0yPLl\n03xpaBVRRQKBgQD6/lWrvr8iqQq5sc1LR2Hm+CmqYXJdlj+x3T3Jmu2xho2SDAVG\nCfUmxpC6qJ9ldcU/2bWEB/eLClwcmBntveOQltUj1d3ysNui1pXtVxBO13QwX9kX\n0OAJT37uE/6au6VxRCjTIVkW104zykPw2j4HRESSbTiVsp/KxRAkQnTakQKBgHqc\nlCAunMJIH9FLV7xyweOl4wlb5+Gy2Px/zXm92FmMMzmSoBC6bcRjIuYU0XdIwZSj\ntL8OPhCQX14B9jdwCfIameLa/hIxaC3/q6ntOrC7n49LHfgEmzaPc9Pidk8axNcB\n5CAhytJedOZhzTuN2FCHTId6/Pa7CmvrGjNSuW3NAoGBAMTTcVApBUYxrdNmDBb0\npihcmVWvB/C5iARUyYNQqCbWClEIR6/Tj2TdUphCRxZ4w+oDflzYAJPX1q0vQKmv\nuDEkUn9W8yacAdde8VmtkmGAYZSP/E5spwx8axMIDXZ5bvq7Zyj+nqh8U7uHZ5kC\nbqNY3Ihy7lm0x+IZQYz+Tbf6\n-----END PRIVATE KEY-----\n",
+        "client_email": "masterdata-950@elevated-apex-360403.iam.gserviceaccount.com",
+        "client_id": "109484565593844446221",
+        "auth_uri": "https://accounts.google.com/o/oauth2/auth",
+        "token_uri": "https://oauth2.googleapis.com/token",
+        "auth_provider_x509_cert_url": "https://www.googleapis.com/oauth2/v1/certs",
+        "client_x509_cert_url": "https://www.googleapis.com/robot/v1/metadata/x509/masterdata-950%40elevated-apex-360403.iam.gserviceaccount.com",
+        "universe_domain": "googleapis.com"
+    }
+    
+    sheet_url = 'https://docs.google.com/spreadsheets/d/10_bnGF7WBZ0J3aSvl8riufNbZjXAxB7wcnN3545fGzw/edit?gid=1081628845#gid=1081628845'
+    
+    worksheet_name = "Farm details"
+    # st.text_input(
+    #     "Worksheet Name (optional)",
+    #     placeholder="Sheet1",
+    #     help="Leave blank to use the first sheet"
+    # )
+    
+    refresh_data = st.button("🔄 Refresh Master Data", help="Reload data from Google Sheets")
 
-if use_sample:
-    st.info("Using sample data for demonstration")
-    master_df, water_df = load_sample_data()
-    st.sidebar.success("✅ Sample data loaded")
-else:
-    # File uploads
-    master_file = st.sidebar.file_uploader(
-        "Upload Master Farm Data",
-        type=['csv', 'xlsx'],
-        help="Upload Excel/CSV file with farm details"
-    )
+st.sidebar.header("📁 Water Data Upload")
+
+# Water file upload (keeping this as file upload)
+water_file = st.sidebar.file_uploader(
+    "Upload Water Level Data", 
+    type=['xlsx'],
+    help="Upload Excel/CSV file with water measurements"
+)
+
+master_df = None
+water_df = None
+
+# Load master data from Google Sheets
+if sheet_url and (refresh_data or 'master_df_cache' not in st.session_state):
+    with st.spinner("Connecting to Google Sheets..."):
+        raw_master = connect_to_google_sheets(credentials_dict, sheet_url, worksheet_name)
     
-    water_file = st.sidebar.file_uploader(
-        "Upload Water Level Data", 
-        type=['csv', 'xlsx'],
-        help="Upload Excel/CSV file with water measurements"
-    )
-    
-    master_df = None
-    water_df = None
-    
-    if master_file:
-        raw_master = process_uploaded_file(master_file, 'master')
-        if raw_master is not None:
-            master_df = clean_master_data(raw_master)
-            if master_df is not None:
-                st.sidebar.success(f"✅ Master data processed: {len(master_df)} farms")
-    
-    if water_file:
-        raw_water = process_uploaded_file(water_file, 'water')
-        if raw_water is not None:
-            water_df = clean_water_data(raw_water)
-            if water_df is not None:
-                st.sidebar.success(f"✅ Water data processed: {len(water_df)} measurements")
+    if raw_master is not None:
+        master_df = clean_master_data(raw_master)
+        if master_df is not None:
+            st.session_state['master_df_cache'] = master_df
+            st.sidebar.success(f"✅ Master data loaded: {len(master_df)} farms")
+            st.sidebar.write(f"Groups distribution: {master_df['Group'].value_counts().to_dict()}")
+        else:
+            st.sidebar.error("❌ Failed to process master data")
+elif 'master_df_cache' in st.session_state:
+    master_df = st.session_state['master_df_cache']
+    st.sidebar.success(f"✅ Using cached master data: {len(master_df)} farms")
+
+# Load water data from file upload
+if water_file:
+    raw_water = process_uploaded_file(water_file, 'water')
+    if raw_water is not None:
+        water_df = clean_water_data(raw_water)
+        if water_df is not None:
+            st.sidebar.success(f"✅ Water data processed: {len(water_df)} measurements")
 
 # Main Analysis
 if master_df is not None and water_df is not None:
@@ -421,22 +1333,66 @@ if master_df is not None and water_df is not None:
     col1, col2 = st.columns(2)
     
     with col1:
-        st.subheader("Master Data")
+        st.subheader("Master Data (Google Sheets)")
         st.dataframe(master_df.head(), use_container_width=True)
+        st.write(f"Total farms: {len(master_df)}")
+        st.write("Group distribution:")
+        st.write(master_df['Group'].value_counts())
     
     with col2:
-        st.subheader("Water Level Data")
+        st.subheader("Water Level Data (Upload)")
         st.dataframe(water_df.head(), use_container_width=True)
+        st.write(f"Total measurements: {len(water_df)}")
+        
+        # Show date range in data
+        min_date = water_df['Date'].min()
+        max_date = water_df['Date'].max()
+        st.write(f"Date range: {min_date.strftime('%Y-%m-%d')} to {max_date.strftime('%Y-%m-%d')}")
     
     # Filters
     st.sidebar.header("🔍 Filters")
     
-    # Week filter
-    available_weeks = list(range(1, 19))
+    # Date Range Filter - NEW ADDITION
+    st.sidebar.subheader("📅 Date Range Filter")
+    
+    # Get available date range from water data
+    min_date = water_df['Date'].min().date()
+    max_date = water_df['Date'].max().date()
+    
+    # Date range selector
+    date_range = st.sidebar.date_input(
+        "Select Date Range",
+        value=(min_date, max_date),
+        min_value=min_date,
+        max_value=max_date,
+        help="Filter water level data by date range"
+    )
+    
+    # Handle single date selection or range
+    if len(date_range) == 2:
+        start_date, end_date = date_range
+        # Filter water data by date range
+        water_df_filtered = water_df[
+            (water_df['Date'].dt.date >= start_date) & 
+            (water_df['Date'].dt.date <= end_date)
+        ].copy()
+        st.sidebar.success(f"📅 Date range: {start_date} to {end_date}")
+        st.sidebar.info(f"Filtered measurements: {len(water_df_filtered)}")
+    else:
+        # Single date or no selection
+        water_df_filtered = water_df.copy()
+        st.sidebar.warning("Please select both start and end dates")
+    
+    # Week filter (based on filtered data)
+    water_df_temp = water_df_filtered.copy()
+    water_df_temp['Week'] = water_df_temp['Date'].apply(lambda x: get_week_number(x, WEEK_PERIODS))
+    available_weeks = sorted([w for w in water_df_temp['Week'].unique() if pd.notna(w)])
+    
     selected_weeks = st.sidebar.multiselect(
         "Select Weeks",
         available_weeks,
-        default=available_weeks[:4]
+        default=available_weeks,
+        format_func=lambda x: f"Week {int(x)}"
     )
     
     # Group filter
@@ -447,118 +1403,263 @@ if master_df is not None and water_df is not None:
         default=available_groups
     )
     
+    # Village filter
+    available_villages = sorted(master_df['Village'].unique())
+    selected_villages = st.sidebar.multiselect(
+        "Select Villages",
+        available_villages,
+        default=available_villages
+    )
+    
+    # Status filter
+    status_options = ['All', 'Compliant Farms Only', 'Non-Compliant Farms Only', 'Group A Only']
+    selected_status = st.sidebar.selectbox("Status Filter", status_options)
+    
     # Generate Analysis
-    if st.button("📊 Analyze Compliance", type="primary", use_container_width=True):
-        with st.spinner("Analyzing compliance..."):
-            payment_df, monitoring_df = analyze_compliance(master_df, water_df)
+    if st.button("📊 Analyze Weekly Compliance", type="primary", use_container_width=True):
+        with st.spinner("Analyzing weekly compliance..."):
+            # Use the date-filtered water data for analysis
+            results_df = analyze_weekly_compliance(master_df, water_df_filtered, WEEK_PERIODS)
         
-        if payment_df is not None and monitoring_df is not None and not payment_df.empty:
+        if results_df is not None and not results_df.empty:
             # Apply filters
             if selected_weeks:
-                payment_df = payment_df[payment_df['Week'].isin(selected_weeks)]
-                # Fixed monitoring filter to properly match week numbers
-                monitoring_df = monitoring_df[monitoring_df['Week'].apply(lambda x: 
-                    any(str(w) in x for w in selected_weeks) if isinstance(x, str) else False)]
+                results_df = results_df[results_df['Week'].isin(selected_weeks)]
             if selected_groups:
-                payment_df = payment_df[payment_df['Group'].isin(selected_groups)]
-                monitoring_df = monitoring_df[monitoring_df['Group'].isin(selected_groups)]
+                results_df = results_df[results_df['Group'].isin(selected_groups)]
+            if selected_villages:
+                results_df = results_df[results_df['Village'].isin(selected_villages)]
             
-            # Display payment results
-            st.header("💰 Payment Analysis Results")
+            # Apply status filter
+            if selected_status == 'Compliant Farms Only':
+                results_df = results_df[results_df['Proportion_Passing'] == 1.0]
+            elif selected_status == 'Non-Compliant Farms Only':
+                results_df = results_df[results_df['Proportion_Passing'] < 1.0]
+            elif selected_status == 'Group A Only':
+                results_df = results_df[results_df['Group'] == 'A']
             
-            # Summary metrics
-            col1, col2, col3, col4 = st.columns(4)
-            
-            with col1:
-                st.metric("Total Farmers", payment_df['Farm_ID'].nunique())
-            
-            with col2:
-                avg_compliance = payment_df['Compliance_Rate'].mean()
-                st.metric("Avg Compliance", f"{avg_compliance:.1%}")
-            
-            with col3:
-                total_payment = payment_df['Payment_Rs'].sum()
-                st.metric("Total Payment", f"₹{total_payment:,.0f}")
-            
-            with col4:
-                total_acres = payment_df['Eligible_Acres'].sum()
-                st.metric("Eligible Acres", f"{total_acres:.1f}")
-            
-            # Detailed payment table
-            st.subheader("Payment Details")
-            
-            # Format for display
-            display_df = payment_df.copy()
-            display_df['Compliance_Rate'] = display_df['Compliance_Rate'].apply(lambda x: f"{x:.1%}")
-            display_df['Eligible_Acres'] = display_df['Eligible_Acres'].round(1)
-            display_df['Payment_Rs'] = display_df['Payment_Rs'].apply(lambda x: f"₹{x:,.0f}")
-            
-            st.dataframe(display_df, use_container_width=True)
-            
-            # Download option for payment data
-            payment_csv = payment_df.to_csv(index=False)
-            st.download_button(
-                "📥 Download Payment Results",
-                payment_csv,
-                "awd_payment_results.csv",
-                "text/csv",
-                use_container_width=True
-            )
-            
-            # Display monitoring table
-            st.header("📋 Field Monitoring Report")
-            st.caption("Each row shows compliance details for one farmer during one week")
-            
-            # Display monitoring table with better formatting
-            if not monitoring_df.empty:
-                st.dataframe(monitoring_df, use_container_width=True)
+            if results_df.empty:
+                st.warning("No data matches the selected filters.")
+            else:
+                # Display results
+                st.header("📊 Weekly Compliance Analysis")
+                st.caption(f"Showing {len(results_df)} records")
                 
-                # Download option for monitoring report
-                monitoring_csv = monitoring_df.to_csv(index=False)
+                # Show applied date filter
+                if len(date_range) == 2:
+                    st.info(f"📅 Analysis based on data from {start_date} to {end_date}")
+                
+                # Summary metrics
+                col1, col2, col3, col4 = st.columns(4)
+                
+                with col1:
+                    total_farmers = results_df['Farm_ID'].nunique()
+                    st.metric("Total Farmers", total_farmers)
+                
+                with col2:
+                    group_a_farmers = results_df[results_df['Group'] == 'A']['Farm_ID'].nunique()
+                    st.metric("Group A Farmers", group_a_farmers)
+                
+                with col3:
+                    total_payment = results_df[results_df['Group'] == 'A']['Amount_to_Pay_Rs'].sum()
+                    st.metric("Total Payment (Group A)", f"₹{total_payment:,.0f}")
+                
+                with col4:
+                    avg_compliance = results_df[results_df['Pipes_Installed'] > 0]['Proportion_Passing'].mean()
+                    st.metric("Avg Compliance Rate", f"{avg_compliance:.1%}" if pd.notna(avg_compliance) else "N/A")
+                
+                # Display main table
+                st.subheader("📋 Weekly Compliance Table")
+                
+                # Format display dataframe
+                display_df = results_df.copy()
+                display_df['Proportion_Passing'] = (display_df['Proportion_Passing'] * 100).round(1).astype(str) + '%'
+                display_df['Amount_to_Pay_Rs'] = display_df['Amount_to_Pay_Rs'].apply(lambda x: f"₹{x:,.0f}" if x > 0 else "N/A")
+                
+                # Select columns for display
+                display_columns = [
+                    'Week', 'Week_Period', 'Village', 'Farm_ID', 'Farmer_Name', 'Group',
+                    'Total_Acres', 'Pipes_Installed', 'Pipes_Passing', 'Non_Compliant_Pipes',
+                    'Proportion_Passing', 'Eligible_Acres', 'Amount_to_Pay_Rs', 'Comments'
+                ]
+                
+                st.dataframe(display_df[display_columns], use_container_width=True)
+                
+                # Pipe details section
+                st.subheader("🔍 Detailed Pipe Analysis")
+                for _, row in results_df.iterrows():
+                    with st.expander(f"Week {row['Week']} - {row['Farm_ID']} ({row['Farmer_Name']})"):
+                        col1, col2 = st.columns(2)
+                        with col1:
+                            st.write(f"**Village:** {row['Village']}")
+                            st.write(f"**Group:** {row['Group']}")
+                            st.write(f"**Total Acres:** {row['Total_Acres']}")
+                            st.write(f"**Pipes Installed:** {row['Pipes_Installed']}")
+                        with col2:
+                            st.write(f"**Pipes Passing:** {row['Pipes_Passing']}")
+                            st.write(f"**Proportion Passing:** {row['Proportion_Passing']:.1%}")
+                            st.write(f"**Eligible Acres:** {row['Eligible_Acres']}")
+                            st.write(f"**Payment:** ₹{row['Amount_to_Pay_Rs']:,.0f}")
+                        
+                        st.write("**Pipe Details:**")
+                        if row['Non_Compliant_Pipes']:
+                            st.error(f"**Non-Compliant Pipes:** {row['Non_Compliant_Pipes']}")
+                        st.text(row['Pipe_Details'])
+                
+                # Download option
+                csv = results_df.to_csv(index=False)
                 st.download_button(
-                    "📥 Download Monitoring Report",
-                    monitoring_csv,
-                    "awd_monitoring_report.csv",
+                    "📥 Download Complete Results",
+                    csv,
+                    f"awd_weekly_compliance_analysis_{start_date}_to_{end_date}.csv",
                     "text/csv",
                     use_container_width=True
                 )
-            else:
-                st.warning("No monitoring data to display after applying filters.")
-        
+                
+                # Payment summary for Group A
+                group_a_data = results_df[results_df['Group'] == 'A']
+                if not group_a_data.empty:
+                    st.subheader("💰 Payment Summary (Group A Only)")
+                    payment_summary = group_a_data.groupby(['Farm_ID', 'Farmer_Name', 'Village']).agg({
+                        'Total_Acres': 'first',
+                        'Eligible_Acres': 'sum',
+                        'Amount_to_Pay_Rs': 'sum'
+                    }).reset_index()
+                    
+                    payment_summary['Amount_to_Pay_Rs'] = payment_summary['Amount_to_Pay_Rs'].apply(lambda x: f"₹{x:,.0f}")
+                    
+                    st.dataframe(payment_summary, use_container_width=True)
+                    
+                    payment_csv = payment_summary.to_csv(index=False)
+                    st.download_button(
+                        "📥 Download Payment Summary",
+                        payment_csv,
+                        f"awd_payment_summary_{start_date}_to_{end_date}.csv",
+                        "text/csv",
+                        use_container_width=True
+                    )
         else:
             st.warning("No results generated. Please check your data.")
 
 else:
-    st.info("👆 Please upload data files or enable sample data to begin analysis.")
+    st.info("👆 Please configure Google Sheets connection and upload water data to begin analysis.")
     
     # Show expected format
-    st.subheader("📋 Expected Data Format")
+    # st.subheader("📋 Expected Data Format")
     
-    col1, col2 = st.columns(2)
+#     col1, col2 = st.columns(2)
     
-    with col1:
-        st.write("**Master Data should contain:**")
-        st.code("""
-- Farm ID column
-- Farmer Name column  
-- Village column
-- Acres column (for incentives)
-- Group columns (A, B, C)
-        """)
+#     with col1:
+#         st.write("**Master Data (Google Sheets) - Actual column names:**")
+#         st.code("""
+# Required Columns (exact names from your sheet):
+# - Kharif 25 Farm ID
+# - Kharif 25 Farmer Name  
+# - Kharif 25 Village
+# - Kharif 25 - AWD Study - acres for incentive (or similar)
+# - Kharif 25 - AWD Study (Y/N)
+# - Kharif 25 - AWD Study - Group A - Treatment (Y/N)
+# - Kharif 25 - AWD Study - Group B -training only (Y/N)
+# - Kharif 25 - AWD Study - Group C - Control (Y/N)
+
+# Note: Blank cells are treated as 0 but farms are kept in analysis
+#         """)
     
-    with col2:
-        st.write("**Water Level Data should contain:**")
-        st.code("""
-- Date column
-- Farm ID column
-- Pipe ID/Code column
-- Water Level (mm) column
-        """)
+#     with col2:
+#         st.write("**Water Level Data (Upload) should contain:**")
+#         st.code("""
+# - Date (YYYY-MM-DD format)
+# - Farm_ID (matches master data)
+# - Pipe_ID (unique pipe identifier)
+# - Water_Level_mm (numeric)
+#         """)
+
+# # Show Google Sheets setup instructions
+# with st.expander("🔧 Quick Setup Guide"):
+#     st.markdown("""
+#     **Simple 2-step setup:**
+    
+#     1. **Share Your Google Sheet:**
+#        - Open your Google Sheet with the master data
+#        - Click the "Share" button (top right)
+#        - Add this email: `masterdata-950@elevated-apex-360403.iam.gserviceaccount.com`
+#        - Give "Editor" permissions
+#        - Click "Send"
+    
+#     2. **Get Your Sheet URL:**
+#        - Copy the URL from your browser's address bar
+#        - It should look like: `https://docs.google.com/spreadsheets/d/SHEET_ID/edit`
+#        - Paste it in the field above
+    
+#     **That's it!** The credentials are already configured in the app.
+#     """)
+    
+#     st.info("💡 **Pro tip:** You can also just paste the Sheet ID (the long string in the URL) instead of the full URL.")
 
 # Show week schedule
 with st.expander("📅 Study Week Schedule"):
     week_schedule = pd.DataFrame(WEEK_PERIODS, columns=['Week', 'Start', 'End', 'Start_ISO', 'End_ISO'])
     st.dataframe(week_schedule[['Week', 'Start', 'End']], use_container_width=True)
 
+# Show compliance criteria
+with st.expander("📏 Compliance Criteria"):
+    st.write("""
+    **For a pipe to be compliant in a week:**
+    1. **Two measurements required** within the week period
+    2. **Both readings ≤ 200mm**
+    3. **At least one reading ≤ 100mm**
+    4. **At least 3 days gap** between measurements
+    
+    **Status Indicators:**
+    - 🟢 **OK**: All criteria met
+    - 🔴 **Pending**: Missing second measurement
+    - 🔴 **Error**: Criteria not met (gap too short, readings too high, etc.)
+    
+    **Payment Calculation (Group A only):**
+    - Eligible Acres = (Compliant Pipes / Total Pipes) × Total Acres
+    - Payment = Eligible Acres × ₹300
+    """)
+
+# Show grouping logic
+with st.expander("👥 Updated Grouping Logic"):
+    st.write("""
+    **Step 1: Keep All Farms**
+    - ALL farms are kept in analysis regardless of AWD Study participation
+    - Blank cells and spaces are treated as 0 but farms are NOT removed
+    
+    **Step 2: Hierarchical Group Assignment**
+    - If `Kharif 25 - AWD Study - Group A - Treatment (Y/N)` = 1 → **Group A**
+    - Else if `Kharif 25 - AWD Study - Group B -training only (Y/N)` = 1 → **Group B** 
+    - Else if `Kharif 25 - AWD Study - Group C - Control (Y/N)` = 1 → **Group C**
+    - If none are 1 (all blank/0) → **Group "Unassigned"**
+    
+    **Values considered as 1:** 1, 1.0, Y, YES, True, T, X
+    **Values considered as 0:** 0, 0.0, N, NO, False, F, blank, empty spaces
+    
+    **📝 Note:** Blank cells are treated as spaces/0 but farms are kept for analysis
+    """)
+
+# Show new date filter information
+with st.expander("📅 NEW: Date Range Filter"):
+    st.write("""
+    **Date Range Filter Features:**
+    
+    🆕 **New Addition:** You can now filter water level data by specific date ranges
+    
+    **How to use:**
+    1. Select start and end dates in the sidebar under "Date Range Filter"
+    2. Only water measurements within the selected range will be analyzed
+    3. Week filters will automatically update based on the date range
+    4. Analysis results will show which date range was used
+    
+    **Benefits:**
+    - Focus on specific time periods of interest
+    - Analyze partial study periods
+    - Compare different date ranges
+    - Exclude outlier periods or problematic data
+    
+    **Note:** The date range filter is applied before week analysis, so it works seamlessly with all existing filters.
+    """)
+
 st.markdown("---")
-st.markdown("*AWD Compliance Analysis Dashboard v4.1*")
+st.markdown("*AWD Compliance Analysis Dashboard v10.0 - Added Date Range Filter*")
