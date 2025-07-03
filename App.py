@@ -1276,7 +1276,7 @@ with st.sidebar.expander("🔑 Google Sheets Setup", expanded=True):
         "universe_domain": "googleapis.com"
     }
     
-    sheet_url = 'https://docs.google.com/spreadsheets/d/10_bnGF7WBZ0J3aSvl8riufNbZjXAxB7wcnN3545fGzw/edit?gid=1081628845#gid=1081628845'
+    sheet_url = 'https://docs.google.com/spreadsheets/d/10_bnGF7WBZ0J3aSvl8riufNbZjXAxB7wcnN3545fGzw/'
     
     worksheet_name = "Farm details"
     # st.text_input(
