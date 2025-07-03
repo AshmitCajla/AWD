@@ -122,6 +122,20 @@ def connect_to_google_sheets(sheet_url, worksheet_name=None):
             return None
         
         # Authorize the client
+        st.write("Verifying credentials structure...")
+        st.json({k: "***REDACTED***" if "private" in k.lower() else v for k,v in creds_dict.items()})
+        
+        try:
+            from google.auth.transport import requests
+            from google.oauth2 import service_account
+            
+            # Test the credentials directly
+            SCOPES = ['https://www.googleapis.com/auth/spreadsheets']
+            creds = service_account.Credentials.from_service_account_info(creds_dict, scopes=SCOPES)
+            st.success("Credentials test passed!")
+        except Exception as e:
+            st.error(f"Credentials test failed: {str(e)}")
+            
         try:
             gc = gspread.authorize(credentials)
         except Exception as auth_error:
