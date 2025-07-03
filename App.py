@@ -8,6 +8,18 @@ import gspread
 from google.oauth2.service_account import Credentials
 import json
 import base64
+import datetime
+import pytz
+
+# Add this to your debugging code
+current_time = datetime.datetime.now(pytz.UTC)
+st.write(f"Current server time (UTC): {current_time}")
+st.write(f"Current server timestamp: {current_time.timestamp()}")
+
+if abs(current_time.timestamp() - time.time()) > 60:
+    st.error("⚠️ WARNING: Server clock is out of sync with actual time!")
+else:
+    st.success("✅ Server clock is synchronized")
 
 # Note: Add st.set_page_config() at the very beginning of your main script file if needed
 # st.set_page_config(page_title="AWD Compliance Analysis", page_icon="🌾", layout="wide")
