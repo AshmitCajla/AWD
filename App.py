@@ -1,4 +1,3 @@
-# st.markdown("*AWD Compliance Analysis Dashboard v9.3 - Fixed Google Sheets Authentication*")
 import streamlit as st
 import pandas as pd
 import numpy as np
@@ -7,7 +6,6 @@ import io
 import gspread
 from google.oauth2.service_account import Credentials
 import json
-import base64
 
 # Note: Add st.set_page_config() at the very beginning of your main script file if needed
 # st.set_page_config(page_title="AWD Compliance Analysis", page_icon="🌾", layout="wide")
@@ -37,145 +35,99 @@ WEEK_PERIODS = [
     (18, "13 October", "15 October", "2025-10-13", "2025-10-15")
 ]
 
-def get_credentials():
-    """Get Google Sheets credentials with multiple fallback methods"""
-    
-    # Method 1: Try from Streamlit secrets (RECOMMENDED for deployment)
-    try:
-        if hasattr(st, 'secrets') and 'gcp_service_account' in st.secrets:
-            # Convert secrets to regular dict to allow modifications
-            return dict(st.secrets['gcp_service_account'])
-    except Exception as e:
-        st.warning(f"Could not load from Streamlit secrets: {e}")
-    
-    # Method 2: Try from environment variables
-    try:
-        import os
-        if 'GOOGLE_CREDENTIALS' in os.environ:
-            return json.loads(os.environ['GOOGLE_CREDENTIALS'])
-    except Exception as e:
-        st.warning(f"Could not load from environment: {e}")
-    
-    # Method 3: Try from base64 encoded environment variable
-    try:
-        import os
-        if 'GOOGLE_CREDENTIALS_B64' in os.environ:
-            decoded = base64.b64decode(os.environ['GOOGLE_CREDENTIALS_B64']).decode('utf-8')
-            return json.loads(decoded)
-    except Exception as e:
-        st.warning(f"Could not load from base64 env: {e}")
-    
-    # Method 4: Fallback to hardcoded (NOT RECOMMENDED for production)
-    st.warning("⚠️ Using hardcoded credentials - not recommended for production!")
-    return {
-        "type": "service_account",
-        "project_id": "elevated-apex-360403",
-        "private_key_id": "f81bf9bb9d9e589180b639eae32d1c36f526a960",
-        "private_key": "-----BEGIN PRIVATE KEY-----\nMIIEvgIBADANBgkqhkiG9w0BAQEFAASCBKgwggSkAgEAAoIBAQDQPsw+ss5krgBu\nwtNC/KUZ5qqRXNG8fjYFLf89VFVMhX1o6PlK39UXPPxzGuNwDcd15Q0h3z/n+/3B\nYObQue9Rqq2CSU5PG4GsNbQgVdEHG9Soix+YWl2vbvWe30dU+3lrv3lq2iVAF2Ul\nPiKmyAGMXe7qracqphh3qWKQPVizoO5MgpkrxRG6/ig7H9N9iu1h2N/fcLBVdOib\nlrkeHdg7KnsaoCPZK6FhVckby4qBbjesL1Jh4BclzC7J21js+9w2xomRotVC2Rts\n+2OCF65rj6edDgyxUCkweGxd0EtCfVEMqjjk4lERHUOPawXsB0rCicmJz2BpsPqk\ngenHFvBVAgMBAAECggEAK0VNN978G3f7b4hskQABx3DCcvuEOkRIccmVvnbiVYjs\nXur/9/KsKsy5kSpeZYd7cXAjiy0CMLBQEUlTFL5577CFJqwYSUBIMNIk6E4kpbM+\n/DmSWlw2mNA32ef/wLUTTRQHhPAoqtlhozw2w4yOI85V6W4lbOt/7IdmC14v6vzu\na6xCAX5i/2wFSlwFJQE9IOfl8bjF5o5CBgsrwYcGI9/AeHPcMXQadpMdrYvjpepK\n5ewOrElIWigS2zCnGnKyg54fdFfaCj4Xntpmyk+ooJyaRaYY0WZwTDmoQi9AlMiU\nFENgtnU7tJRnBA+452Rf3Nd6d10vkBbCxz3CM5alsQKBgQD/oJZCzCNpmtZSfQCW\nz/Nj4jJyc8uoViS0TPBlf1SyKll1ZOo8JBaFJxvXULVGm4346BFma19ufz8ozmui\n7D61PL5haKoVLwdi8gDd8hcnQs3H+kbujhSj42/M9kaYDUW3KeFG1ZytqZ6FG6by\nMzJDkZfqFCZxKerZUoSFyvUr0QKBgQDQjIaIZJivYYPA2Y7Z7S+5/1BGQoqQjT4j\nEoDdMARNIJE/6Fu1oV27etKprDCHSWAdYAIk+UpU8JeUKdUFyeMc4pZB0kFsucFl\ncj3JWjWu6y+wqW4vXL0OYBn12ZKH0uZwZRASbg68yofm51QJItIBjVhItW/0yPLl\n03xpaBVRRQKBgQD6/lWrvr8iqQq5sc1LR2Hm+CmqYXJdlj+x3T3Jmu2xho2SDAVG\nCfUmxpC6qJ9ldcU/2bWEB/eLClwcmBntveOQltUj1d3ysNui1pXtVxBO13QwX9kX\n0OAJT37uE/6au6VxRCjTIVkW104zykPw2j4HRESSbTiVsp/KxRAkQnTakQKBgHqc\nlCAunMJIH9FLV7xyweOl4wlb5+Gy2Px/zXm92FmMMzmSoBC6bcRjIuYU0XdIwZSj\ntL8OPhCQX14B9jdwCfIameLa/hIxaC3/q6ntOrC7n49LHfgEmzaPc9Pidk8axNcB\n5CAhytJedOZhzTuN2FCHTId6/Pa7CmvrGjNSuW3NAoGBAMTTcVApBUYxrdNmDBb0\npihcmVWvB/C5iARUyYNQqCbWClEIR6/Tj2TdUphCRxZ4w+oDflzYAJPX1q0vQKmv\nuDEkUn9W8yacAdde8VmtkmGAYZSP/E5spwx8axMIDXZ5bvq7Zyj+nqh8U7uHZ5kC\nbqNY3Ihy7lm0x+IZQYz+Tbf6\n-----END PRIVATE KEY-----\n",
-        "client_email": "masterdata-950@elevated-apex-360403.iam.gserviceaccount.com",
-        "client_id": "109484565593844446221",
-        "auth_uri": "https://accounts.google.com/o/oauth2/auth",
-        "token_uri": "https://oauth2.googleapis.com/token",
-        "auth_provider_x509_cert_url": "https://www.googleapis.com/oauth2/v1/certs",
-        "client_x509_cert_url": "https://www.googleapis.com/robot/v1/metadata/x509/masterdata-950%40elevated-apex-360403.iam.gserviceaccount.com",
-        "universe_domain": "googleapis.com"
-    }
-
 @st.cache_data(ttl=300)  # Cache for 5 minutes
-def connect_to_google_sheets(sheet_url, worksheet_name=None):
-    """Connect to Google Sheets and return DataFrame with improved error handling"""
+def connect_to_google_sheets(credentials_dict, sheet_url, worksheet_name=None):
+    """Connect to Google Sheets and return DataFrame"""
     try:
-        # Get credentials using the new method
-        creds_dict = get_credentials()
-        
-        # Validate credentials structure
-        required_keys = ['type', 'project_id', 'private_key', 'client_email']
-        missing_keys = [key for key in required_keys if key not in creds_dict]
-        if missing_keys:
-            st.error(f"❌ Missing required credential keys: {missing_keys}")
-            return None
-        
-        # Clean up the private key (remove extra whitespace/newlines that might cause issues)
-        if 'private_key' in creds_dict:
-            private_key = creds_dict['private_key']
-            # Ensure proper formatting
-            if not private_key.startswith('-----BEGIN PRIVATE KEY-----'):
-                st.error("❌ Invalid private key format")
-                return None
-            
-            # Clean up any potential formatting issues and update the dict
-            creds_dict = creds_dict.copy()  # Make a copy to avoid modifying original
-            creds_dict['private_key'] = private_key.replace('\\n', '\n')
+        # Parse credentials
+        if isinstance(credentials_dict, str):
+            creds_dict = json.loads(credentials_dict)
+        else:
+            creds_dict = credentials_dict
         
         # Set up credentials and scope
-        scope = [
-            'https://spreadsheets.google.com/feeds',
-            'https://www.googleapis.com/auth/drive'
-        ]
+        scope = ['https://spreadsheets.google.com/feeds',
+                'https://www.googleapis.com/auth/drive']
         
-        # Create credentials with error handling
-        try:
-            credentials = Credentials.from_service_account_info(creds_dict, scopes=scope)
-        except Exception as cred_error:
-            st.error(f"❌ Error creating credentials: {str(cred_error)}")
-            st.error("This usually indicates an issue with the private key format or credential data")
-            return None
-        
-        # Authorize the client
-        try:
-            gc = gspread.authorize(credentials)
-        except Exception as auth_error:
-            st.error(f"❌ Error authorizing with Google: {str(auth_error)}")
-            if "Invalid JWT Signature" in str(auth_error):
-                st.error("🔑 JWT Signature error - please check your service account credentials")
-                st.info("💡 Try regenerating your service account key from Google Cloud Console")
-            return None
+        credentials = Credentials.from_service_account_info(creds_dict, scopes=scope)
+        gc = gspread.authorize(credentials)
         
         # Open the spreadsheet
-        try:
-            if sheet_url.startswith('https://docs.google.com/spreadsheets/d/'):
-                # Extract sheet ID from URL
-                sheet_id = sheet_url.split('/d/')[1].split('/')[0]
-                sheet = gc.open_by_key(sheet_id)
-            else:
-                # Assume it's a sheet name
-                sheet = gc.open(sheet_url)
-        except Exception as sheet_error:
-            st.error(f"❌ Error opening spreadsheet: {str(sheet_error)}")
-            st.info("📋 Make sure the sheet is shared with: masterdata-950@elevated-apex-360403.iam.gserviceaccount.com")
-            return None
+        if sheet_url.startswith('https://docs.google.com/spreadsheets/d/'):
+            # Extract sheet ID from URL
+            sheet_id = sheet_url.split('/d/')[1].split('/')[0]
+            sheet = gc.open_by_key(sheet_id)
+        else:
+            # Assume it's a sheet name
+            sheet = gc.open(sheet_url)
         
         # Get worksheet
-        try:
-            if worksheet_name:
-                worksheet = sheet.worksheet(worksheet_name)
-            else:
-                worksheet = sheet.get_worksheet(0)  # First worksheet
-        except Exception as ws_error:
-            st.error(f"❌ Error accessing worksheet '{worksheet_name}': {str(ws_error)}")
-            available_sheets = [ws.title for ws in sheet.worksheets()]
-            st.info(f"📄 Available worksheets: {', '.join(available_sheets)}")
-            return None
+        if worksheet_name:
+            worksheet = sheet.worksheet(worksheet_name)
+        else:
+            worksheet = sheet.get_worksheet(0)  # First worksheet
         
         # Get all data
-        try:
-            data = worksheet.get_all_records()
-            df = pd.DataFrame(data)
-        except Exception as data_error:
-            st.error(f"❌ Error reading data: {str(data_error)}")
-            return None
+        data = worksheet.get_all_records()
+        df = pd.DataFrame(data)
         
-        if df.empty:
-            st.warning("⚠️ The worksheet appears to be empty")
-            return None
-        
-        st.success(f"✅ Connected to Google Sheets: {len(df)} rows loaded from '{worksheet.title}'")
+        st.success(f"✅ Connected to Google Sheets: {len(df)} rows loaded")
         return df
         
     except Exception as e:
-        st.error(f"❌ Unexpected error connecting to Google Sheets: {str(e)}")
-        st.exception(e)  # Show full traceback for debugging
+        st.error(f"❌ Error connecting to Google Sheets: {str(e)}")
         return None
+
+def get_credentials_from_secrets():
+    """Get Google Sheets credentials from Streamlit secrets"""
+    try:
+        # Get credentials from secrets
+        google_secrets = st.secrets["google_sheets"]
+        
+        credentials_dict = {
+            "type": google_secrets["type"],
+            "project_id": google_secrets["project_id"],
+            "private_key_id": google_secrets["private_key_id"],
+            "private_key": google_secrets["private_key"],
+            "client_email": google_secrets["client_email"],
+            "client_id": google_secrets["client_id"],
+            "auth_uri": google_secrets["auth_uri"],
+            "token_uri": google_secrets["token_uri"],
+            "auth_provider_x509_cert_url": google_secrets["auth_provider_x509_cert_url"],
+            "client_x509_cert_url": google_secrets["client_x509_cert_url"],
+            "universe_domain": google_secrets["universe_domain"]
+        }
+        
+        return credentials_dict
+        
+    except KeyError as e:
+        st.error(f"❌ Missing secret: {str(e)}")
+        st.error("Please check your .streamlit/secrets.toml file configuration")
+        return None
+    except Exception as e:
+        st.error(f"❌ Error loading secrets: {str(e)}")
+        return None
+
+def get_app_config_from_secrets():
+    """Get app configuration from Streamlit secrets"""
+    try:
+        app_config = st.secrets["app_config"]
+        return {
+            "sheet_url": app_config["sheet_url"],
+            "worksheet_name": app_config["worksheet_name"]
+        }
+    except KeyError:
+        # Return defaults if not in secrets
+        return {
+            "sheet_url": "",
+            "worksheet_name": "Farm details"
+        }
+    except Exception as e:
+        st.error(f"❌ Error loading app config: {str(e)}")
+        return {
+            "sheet_url": "",
+            "worksheet_name": "Farm details"
+        }
 
 def process_uploaded_file(uploaded_file, file_type):
     """Process uploaded files with error handling"""
@@ -555,27 +507,35 @@ st.sidebar.header("🔗 Google Sheets Configuration")
 # Google Sheets Configuration
 with st.sidebar.expander("🔑 Google Sheets Setup", expanded=True):
     st.markdown("""
-    **Setup Instructions:**
-    1. ✅ Service Account: `masterdata-950@elevated-apex-360403.iam.gserviceaccount.com`
-    2. Share your Google Sheet with the email above (Editor access)
-    3. Enter your Google Sheets URL below
+    **Configuration loaded from secrets.toml**
     
-    **For deployment issues:**
-    - Use Streamlit Secrets for credentials (recommended)
-    - Or set GOOGLE_CREDENTIALS environment variable
+    📝 **Service Account:** `masterdata-950@elevated-apex-360403.iam.gserviceaccount.com`
+    
+    ✅ **Setup Status:** Credentials loaded from `.streamlit/secrets.toml`
     """)
     
-    sheet_url = st.text_input(
-        "Google Sheets URL",
-        value='https://docs.google.com/spreadsheets/d/10_bnGF7WBZ0J3aSvl8riufNbZjXAxB7wcnN3545fGzw/',
-        help="Full URL of your Google Sheet"
+    # Get configuration from secrets
+    app_config = get_app_config_from_secrets()
+    credentials_dict = get_credentials_from_secrets()
+    
+    if credentials_dict is None:
+        st.error("❌ Failed to load credentials from secrets.toml")
+        st.stop()
+    else:
+        st.success("✅ Credentials loaded successfully")
+    
+    # Allow override of sheet URL if needed
+    sheet_url_override = st.text_input(
+        "Override Sheet URL (optional)",
+        placeholder="Leave blank to use URL from secrets.toml"
     )
     
-    worksheet_name = st.text_input(
-        "Worksheet Name",
-        value="Farm details",
-        help="Name of the specific worksheet to read"
-    )
+    # Use override if provided, otherwise use from secrets
+    sheet_url = sheet_url_override.strip() if sheet_url_override.strip() else app_config["sheet_url"]
+    worksheet_name = app_config["worksheet_name"]
+    
+    if not sheet_url:
+        st.warning("⚠️ No Google Sheets URL configured. Please add to secrets.toml or enter above.")
     
     refresh_data = st.button("🔄 Refresh Master Data", help="Reload data from Google Sheets")
 
@@ -594,7 +554,7 @@ water_df = None
 # Load master data from Google Sheets
 if sheet_url and (refresh_data or 'master_df_cache' not in st.session_state):
     with st.spinner("Connecting to Google Sheets..."):
-        raw_master = connect_to_google_sheets(sheet_url, worksheet_name)
+        raw_master = connect_to_google_sheets(credentials_dict, sheet_url, worksheet_name)
     
     if raw_master is not None:
         master_df = clean_master_data(raw_master)
@@ -644,7 +604,7 @@ if master_df is not None and water_df is not None:
     # Filters
     st.sidebar.header("🔍 Filters")
     
-    # Date Range Filter
+    # Date Range Filter - NEW ADDITION
     st.sidebar.subheader("📅 Date Range Filter")
     
     # Get available date range from water data
@@ -836,76 +796,6 @@ if master_df is not None and water_df is not None:
 else:
     st.info("👆 Please configure Google Sheets connection and upload water data to begin analysis.")
 
-# Show troubleshooting guide
-with st.expander("🔧 Troubleshooting Google Sheets Connection"):
-    st.markdown("""
-    **Common Issues and Solutions:**
-    
-    **1. "Invalid JWT Signature" Error:**
-    - This usually means there's an issue with the service account credentials
-    - **Solution for Streamlit Cloud:** Use Streamlit Secrets (see setup below)
-    - **Solution for other deployments:** Set environment variables properly
-    
-    **2. Streamlit Secrets Setup (Recommended for deployment):**
-    
-    Create a `.streamlit/secrets.toml` file in your project:
-    ```toml
-    [gcp_service_account]
-    type = "service_account"
-    project_id = "your-project-id"
-    private_key_id = "your-private-key-id"
-    private_key = "-----BEGIN PRIVATE KEY-----\\nYOUR_PRIVATE_KEY\\n-----END PRIVATE KEY-----\\n"
-    client_email = "your-service-account@your-project.iam.gserviceaccount.com"
-    client_id = "your-client-id"
-    auth_uri = "https://accounts.google.com/o/oauth2/auth"
-    token_uri = "https://oauth2.googleapis.com/token"
-    auth_provider_x509_cert_url = "https://www.googleapis.com/oauth2/v1/certs"
-    client_x509_cert_url = "https://www.googleapis.com/robot/v1/metadata/x509/your-service-account%40your-project.iam.gserviceaccount.com"
-    universe_domain = "googleapis.com"
-    ```
-    
-    **3. Environment Variable Setup:**
-    - Set `GOOGLE_CREDENTIALS` with the full JSON credentials
-    - Or set `GOOGLE_CREDENTIALS_B64` with base64-encoded credentials
-    
-    **4. Sheet Sharing:**
-    - Make sure your Google Sheet is shared with: `masterdata-950@elevated-apex-360403.iam.gserviceaccount.com`
-    - Give "Editor" permissions
-    
-    **5. Generate New Service Account Key:**
-    - Go to Google Cloud Console → IAM & Admin → Service Accounts
-    - Find your service account and create a new key
-    - Download the JSON file and update your credentials
-    """)
-
-# Show expected format
-with st.expander("📋 Expected Data Format"):
-    col1, col2 = st.columns(2)
-    
-    with col1:
-        st.write("**Master Data (Google Sheets) - Required columns:**")
-        st.code("""
-Required Columns (exact names):
-- Kharif 25 Farm ID
-- Kharif 25 Farmer Name  
-- Kharif 25 Village
-- Kharif 25 - AWD Study - acres for incentive
-- Kharif 25 - AWD Study (Y/N)
-- Kharif 25 - AWD Study - Group A - Treatment (Y/N)
-- Kharif 25 - AWD Study - Group B -training only (Y/N)
-- Kharif 25 - AWD Study - Group C - Control (Y/N)
-        """)
-    
-    with col2:
-        st.write("**Water Level Data (Upload):**")
-        st.code("""
-Required Columns:
-- Date (YYYY-MM-DD format)
-- Farm_ID (matches master data)
-- Pipe_ID (unique pipe identifier)
-- Water_Level_mm (numeric)
-        """)
-
 # Show week schedule
 with st.expander("📅 Study Week Schedule"):
     week_schedule = pd.DataFrame(WEEK_PERIODS, columns=['Week', 'Start', 'End', 'Start_ISO', 'End_ISO'])
@@ -930,5 +820,64 @@ with st.expander("📏 Compliance Criteria"):
     - Payment = Eligible Acres × ₹300
     """)
 
+# Show grouping logic
+with st.expander("👥 Updated Grouping Logic"):
+    st.write("""
+    **Step 1: Keep All Farms**
+    - ALL farms are kept in analysis regardless of AWD Study participation
+    - Blank cells and spaces are treated as 0 but farms are NOT removed
+    
+    **Step 2: Hierarchical Group Assignment**
+    - If `Kharif 25 - AWD Study - Group A - Treatment (Y/N)` = 1 → **Group A**
+    - Else if `Kharif 25 - AWD Study - Group B -training only (Y/N)` = 1 → **Group B** 
+    - Else if `Kharif 25 - AWD Study - Group C - Control (Y/N)` = 1 → **Group C**
+    - If none are 1 (all blank/0) → **Group "Unassigned"**
+    
+    **Values considered as 1:** 1, 1.0, Y, YES, True, T, X
+    **Values considered as 0:** 0, 0.0, N, NO, False, F, blank, empty spaces
+    
+    **📝 Note:** Blank cells are treated as spaces/0 but farms are kept for analysis
+    """)
+
+# Show new date filter information
+with st.expander("📅 Date Range Filter"):
+    st.write("""
+    **Date Range Filter Features:**
+    
+    **How to use:**
+    1. Select start and end dates in the sidebar under "Date Range Filter"
+    2. Only water measurements within the selected range will be analyzed
+    3. Week filters will automatically update based on the date range
+    4. Analysis results will show which date range was used
+    
+    **Benefits:**
+    - Focus on specific time periods of interest
+    - Analyze partial study periods
+    - Compare different date ranges
+    - Exclude outlier periods or problematic data
+    
+    **Note:** The date range filter is applied before week analysis, so it works seamlessly with all existing filters.
+    """)
+
+# Show secrets configuration info
+with st.expander("🔐 Secrets Configuration"):
+    st.write("""
+    **Configuration Management:**
+    
+    ✅ **Credentials:** Loaded from `.streamlit/secrets.toml`
+    ✅ **Google Sheets URL:** Configurable in secrets.toml or override in sidebar
+    ✅ **Worksheet Name:** Configurable in secrets.toml
+    
+    **Benefits of using secrets.toml:**
+    - 🔒 **Security:** Credentials not visible in code
+    - 🔄 **Flexibility:** Easy to update without code changes
+    - 🚀 **Deployment:** Works seamlessly with Streamlit Cloud
+    - 📝 **Version Control:** Secrets excluded from git
+    
+    **Files needed:**
+    - `.streamlit/secrets.toml` (for credentials and config)
+    - `.gitignore` (should include `.streamlit/secrets.toml`)
+    """)
+
 st.markdown("---")
-st.markdown("*AWD Compliance Analysis Dashboard v9.3 - Fixed Google Sheets Authentication*")
+st.markdown("*AWD Compliance Analysis Dashboard v11.0 - Using Streamlit Secrets*")
