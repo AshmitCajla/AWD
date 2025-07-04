@@ -180,13 +180,18 @@ def clean_master_data(df):
         farm_id_col = find_column(df_clean, ['kharif 25 farm id'], 'Farm_ID')
         farmer_name_col = find_column(df_clean, ['Kharif 25 Farmer Name'], 'Farmer_Name')
         village_col = find_column(df_clean, ['Kharif 25 Village'], 'Village')
-        acres_col = find_column(df_clean, ['kharif 25 - awd study - acres for incentive', 'kharif 25 acres on earth', 'acres', 'acreage', 'incentive acres'], 'Acres')
+        
+        # Use the specific incentive acres column as requested
+        incentive_acres_col = 'Kharif 25 - AWD Study - acres for incentive'
         
         # Exact column names as they appear in the actual sheet
         awd_study_col = 'Kharif 25 - AWD Study (Y/N)'
         group_a_col = 'Kharif 25 - AWD Study - Group A - Treatment (Y/N)'
         group_b_col = 'Kharif 25 - AWD Study - Group B -training only (Y/N)'
         group_c_col = 'Kharif 25 - AWD Study - Group C - Control (Y/N)'
+        
+        # NEW: Column for compliance-based incentive eligibility
+        group_a_complied_col = 'Kharif 25 - AWD Study - Group A - Treatment - complied (Y/N)'
         
         # Check if required columns exist and show what was found
         missing_cols = []
@@ -196,7 +201,9 @@ def clean_master_data(df):
             ('AWD Study', awd_study_col),
             ('Group A', group_a_col), 
             ('Group B', group_b_col),
-            ('Group C', group_c_col)
+            ('Group C', group_c_col),
+            ('Group A Complied', group_a_complied_col),
+            ('Incentive Acres', incentive_acres_col)
         ]:
             if col_var not in df_clean.columns:
                 missing_cols.append(f"{col_name}: '{col_var}'")
@@ -215,8 +222,6 @@ def clean_master_data(df):
             basic_cols_found.append(f"Farmer Name: '{farmer_name_col}'")
         if village_col:
             basic_cols_found.append(f"Village: '{village_col}'")
-        if acres_col:
-            basic_cols_found.append(f"Acres: '{acres_col}'")
         
         if basic_cols_found:
             st.info("Basic columns found: " + ", ".join(basic_cols_found))
@@ -232,11 +237,13 @@ def clean_master_data(df):
         df_clean['Farmer_Name'] = df_clean[farmer_name_col].astype(str).fillna("Unknown_Farmer") if farmer_name_col else "Unknown_Farmer"
         df_clean['Village'] = df_clean[village_col].astype(str).fillna("Unknown_Village") if village_col else "Unknown_Village"
         
-        if acres_col:
-            df_clean['Acres'] = pd.to_numeric(df_clean[acres_col], errors='coerce')
-            df_clean['Acres'] = df_clean['Acres'].fillna(0).clip(lower=0)
+        # Handle incentive acres column specifically
+        if incentive_acres_col in df_clean.columns:
+            df_clean['Incentive_Acres'] = pd.to_numeric(df_clean[incentive_acres_col], errors='coerce').fillna(0).clip(lower=0)
+            st.success(f"✅ Using incentive acres from: '{incentive_acres_col}'")
         else:
-            df_clean['Acres'] = 0
+            df_clean['Incentive_Acres'] = 0
+            st.warning(f"⚠️ Incentive acres column not found, using 0 for all farms")
         
         # Create AWD study flag but DON'T filter - keep all farms
         df_clean['awd_study_flag'] = df_clean[awd_study_col].apply(is_positive_value)
@@ -264,17 +271,23 @@ def clean_master_data(df):
         
         df_clean['Group'] = df_clean.apply(assign_group_hierarchical, axis=1)
         
-        # Show group distribution (no filtering)
+        # NEW: Add compliance flag for Group A Treatment
+        df_clean['Group_A_Complied'] = df_clean[group_a_complied_col].apply(is_positive_value)
+        
+        # Show group distribution and compliance status
         group_counts = df_clean['Group'].value_counts()
+        compliance_counts = df_clean['Group_A_Complied'].sum()
         st.success(f"✅ Group Distribution: {group_counts.to_dict()}")
+        st.success(f"✅ Group A Treatment Complied: {compliance_counts} farms")
         
         # Show sample of actual values in AWD columns for debugging
         st.info("📊 Sample AWD Column Values:")
-        sample_data = df_clean[[farm_id_col, awd_study_col, group_a_col, group_b_col, group_c_col, 'Group']].head(10)
+        sample_cols = [farm_id_col, awd_study_col, group_a_col, group_b_col, group_c_col, group_a_complied_col, 'Group', 'Group_A_Complied']
+        sample_data = df_clean[sample_cols].head(10)
         st.dataframe(sample_data, use_container_width=True)
         
-        # Return cleaned data with only necessary columns
-        final_df = df_clean[['Farm_ID', 'Farmer_Name', 'Village', 'Acres', 'Group']].copy()
+        # Return cleaned data with necessary columns
+        final_df = df_clean[['Farm_ID', 'Farmer_Name', 'Village', 'Incentive_Acres', 'Group', 'Group_A_Complied']].copy()
         
         # Only remove rows with completely missing Farm_ID
         final_df = final_df.dropna(subset=['Farm_ID'])
@@ -441,7 +454,8 @@ def analyze_weekly_compliance(master_df, water_df, week_periods):
                     'Farm_ID': farm_master_data['Farm_ID'],
                     'Farmer_Name': farm_master_data['Farmer_Name'],
                     'Group': farm_master_data['Group'],
-                    'Total_Acres': farm_master_data['Acres'],
+                    'Group_A_Complied': farm_master_data['Group_A_Complied'],
+                    'Total_Incentive_Acres': farm_master_data['Incentive_Acres'],
                     'Pipes_Installed': 0,
                     'Pipes_Passing': 0,
                     'Non_Compliant_Pipes': '',
@@ -473,13 +487,15 @@ def analyze_weekly_compliance(master_df, water_df, week_periods):
             
             # Calculate metrics
             proportion_passing = pipes_passing / pipes_installed if pipes_installed > 0 else 0
-            eligible_acres = proportion_passing * farm_master_data['Acres']
+            eligible_acres = proportion_passing * farm_master_data['Incentive_Acres']
             
-            # Payment only for Group A
-            if farm_master_data['Group'] == 'A':
+            # UPDATED: Payment only for farms with Group A Treatment Complied = 1
+            if farm_master_data['Group_A_Complied']:
                 amount_to_pay = eligible_acres * 300
+                payment_eligible = True
             else:
                 amount_to_pay = 0
+                payment_eligible = False
             
             results.append({
                 'Week': int(week_num),
@@ -488,7 +504,9 @@ def analyze_weekly_compliance(master_df, water_df, week_periods):
                 'Farm_ID': farm_master_data['Farm_ID'],
                 'Farmer_Name': farm_master_data['Farmer_Name'],
                 'Group': farm_master_data['Group'],
-                'Total_Acres': farm_master_data['Acres'],
+                'Group_A_Complied': farm_master_data['Group_A_Complied'],
+                'Payment_Eligible': payment_eligible,
+                'Total_Incentive_Acres': farm_master_data['Incentive_Acres'],
                 'Pipes_Installed': pipes_installed,
                 'Pipes_Passing': pipes_passing,
                 'Non_Compliant_Pipes': '; '.join(non_compliant_pipes) if non_compliant_pipes else '',
@@ -506,14 +524,6 @@ def analyze_weekly_compliance(master_df, water_df, week_periods):
 
 # Google Sheets Configuration
 with st.sidebar.expander("🔑 Google Sheets Setup", expanded=True):
-    # st.markdown("""
-    # **Configuration loaded from secrets.toml**
-    
-    # 📝 **Service Account:** `masterdata-950@elevated-apex-360403.iam.gserviceaccount.com`
-    
-    # ✅ **Setup Status:** Credentials loaded from `.streamlit/secrets.toml`
-    # """)
-    
     # Get configuration from secrets
     app_config = get_app_config_from_secrets()
     credentials_dict = get_credentials_from_secrets()
@@ -523,12 +533,6 @@ with st.sidebar.expander("🔑 Google Sheets Setup", expanded=True):
         st.stop()
     else:
         st.success("✅ Credentials loaded successfully")
-    
-    # # Allow override of sheet URL if needed
-    # sheet_url_override = st.text_input(
-    #     "Override Sheet URL (optional)",
-    #     placeholder="Leave blank to use URL from secrets.toml"
-    # )
     
     # Use override if provided, otherwise use from secrets
     sheet_url =  app_config["sheet_url"]
@@ -562,6 +566,7 @@ if sheet_url and (refresh_data or 'master_df_cache' not in st.session_state):
             st.session_state['master_df_cache'] = master_df
             st.sidebar.success(f"✅ Master data loaded: {len(master_df)} farms")
             st.sidebar.write(f"Groups distribution: {master_df['Group'].value_counts().to_dict()}")
+            st.sidebar.write(f"Payment eligible farms: {master_df['Group_A_Complied'].sum()}")
         else:
             st.sidebar.error("❌ Failed to process master data")
 elif 'master_df_cache' in st.session_state:
@@ -590,6 +595,7 @@ if master_df is not None and water_df is not None:
         st.write(f"Total farms: {len(master_df)}")
         st.write("Group distribution:")
         st.write(master_df['Group'].value_counts())
+        st.write(f"Payment eligible farms (Group A Complied): {master_df['Group_A_Complied'].sum()}")
     
     with col2:
         st.subheader("Water Level Data (Upload)")
@@ -663,8 +669,8 @@ if master_df is not None and water_df is not None:
         default=available_villages
     )
     
-    # Status filter
-    status_options = ['All', 'Compliant Farms Only', 'Non-Compliant Farms Only', 'Group A Only']
+    # Status filter - UPDATED
+    status_options = ['All', 'Compliant Farms Only', 'Non-Compliant Farms Only', 'Payment Eligible Only']
     selected_status = st.sidebar.selectbox("Status Filter", status_options)
     
     # Generate Analysis
@@ -682,13 +688,13 @@ if master_df is not None and water_df is not None:
             if selected_villages:
                 results_df = results_df[results_df['Village'].isin(selected_villages)]
             
-            # Apply status filter
+            # Apply status filter - UPDATED
             if selected_status == 'Compliant Farms Only':
                 results_df = results_df[results_df['Proportion_Passing'] == 1.0]
             elif selected_status == 'Non-Compliant Farms Only':
                 results_df = results_df[results_df['Proportion_Passing'] < 1.0]
-            elif selected_status == 'Group A Only':
-                results_df = results_df[results_df['Group'] == 'A']
+            elif selected_status == 'Payment Eligible Only':
+                results_df = results_df[results_df['Payment_Eligible'] == True]
             
             if results_df.empty:
                 st.warning("No data matches the selected filters.")
@@ -701,7 +707,7 @@ if master_df is not None and water_df is not None:
                 if len(date_range) == 2:
                     st.info(f"📅 Analysis based on data from {start_date} to {end_date}")
                 
-                # Summary metrics
+                # Summary metrics - UPDATED
                 col1, col2, col3, col4 = st.columns(4)
                 
                 with col1:
@@ -709,12 +715,12 @@ if master_df is not None and water_df is not None:
                     st.metric("Total Farmers", total_farmers)
                 
                 with col2:
-                    group_a_farmers = results_df[results_df['Group'] == 'A']['Farm_ID'].nunique()
-                    st.metric("Group A Farmers", group_a_farmers)
+                    payment_eligible_farmers = results_df[results_df['Payment_Eligible'] == True]['Farm_ID'].nunique()
+                    st.metric("Payment Eligible Farmers", payment_eligible_farmers)
                 
                 with col3:
-                    total_payment = results_df[results_df['Group'] == 'A']['Amount_to_Pay_Rs'].sum()
-                    st.metric("Total Payment (Group A)", f"₹{total_payment:,.0f}")
+                    total_payment = results_df[results_df['Payment_Eligible'] == True]['Amount_to_Pay_Rs'].sum()
+                    st.metric("Total Payment", f"₹{total_payment:,.0f}")
                 
                 with col4:
                     avg_compliance = results_df[results_df['Pipes_Installed'] > 0]['Proportion_Passing'].mean()
@@ -727,11 +733,12 @@ if master_df is not None and water_df is not None:
                 display_df = results_df.copy()
                 display_df['Proportion_Passing'] = (display_df['Proportion_Passing'] * 100).round(1).astype(str) + '%'
                 display_df['Amount_to_Pay_Rs'] = display_df['Amount_to_Pay_Rs'].apply(lambda x: f"₹{x:,.0f}" if x > 0 else "N/A")
+                display_df['Payment_Eligible'] = display_df['Payment_Eligible'].apply(lambda x: "✅ Yes" if x else "❌ No")
                 
-                # Select columns for display
+                # Select columns for display - UPDATED
                 display_columns = [
                     'Week', 'Week_Period', 'Village', 'Farm_ID', 'Farmer_Name', 'Group',
-                    'Total_Acres', 'Pipes_Installed', 'Pipes_Passing', 'Non_Compliant_Pipes',
+                    'Payment_Eligible', 'Total_Incentive_Acres', 'Pipes_Installed', 'Pipes_Passing', 'Non_Compliant_Pipes',
                     'Proportion_Passing', 'Eligible_Acres', 'Amount_to_Pay_Rs', 'Comments'
                 ]
                 
@@ -745,7 +752,8 @@ if master_df is not None and water_df is not None:
                         with col1:
                             st.write(f"**Village:** {row['Village']}")
                             st.write(f"**Group:** {row['Group']}")
-                            st.write(f"**Total Acres:** {row['Total_Acres']}")
+                            st.write(f"**Payment Eligible:** {'✅ Yes' if row['Payment_Eligible'] else '❌ No'}")
+                            st.write(f"**Total Incentive Acres:** {row['Total_Incentive_Acres']}")
                             st.write(f"**Pipes Installed:** {row['Pipes_Installed']}")
                         with col2:
                             st.write(f"**Pipes Passing:** {row['Pipes_Passing']}")
@@ -768,12 +776,12 @@ if master_df is not None and water_df is not None:
                     use_container_width=True
                 )
                 
-                # Payment summary for Group A
-                group_a_data = results_df[results_df['Group'] == 'A']
-                if not group_a_data.empty:
-                    st.subheader("💰 Payment Summary (Group A Only)")
-                    payment_summary = group_a_data.groupby(['Farm_ID', 'Farmer_Name', 'Village']).agg({
-                        'Total_Acres': 'first',
+                # Payment summary for eligible farms - UPDATED
+                payment_eligible_data = results_df[results_df['Payment_Eligible'] == True]
+                if not payment_eligible_data.empty:
+                    st.subheader("💰 Payment Summary (Payment Eligible Farms Only)")
+                    payment_summary = payment_eligible_data.groupby(['Farm_ID', 'Farmer_Name', 'Village']).agg({
+                        'Total_Incentive_Acres': 'first',
                         'Eligible_Acres': 'sum',
                         'Amount_to_Pay_Rs': 'sum'
                     }).reset_index()
@@ -815,13 +823,15 @@ with st.expander("📏 Compliance Criteria"):
     - 🔴 **Pending**: Missing second measurement
     - 🔴 **Error**: Criteria not met (gap too short, readings too high, etc.)
     
-    **Payment Calculation (Group A only):**
-    - Eligible Acres = (Compliant Pipes / Total Pipes) × Total Acres
-    - Payment = Eligible Acres × ₹300
+    **UPDATED Payment Calculation:**
+    - ✅ **Payment Eligible**: Farms with 1 in "Kharif 25 - AWD Study - Group A - Treatment - complied (Y/N)"
+    - **Acres Used**: "Kharif 25 - AWD Study - acres for incentive"
+    - **Eligible Acres** = (Compliant Pipes / Total Pipes) × Incentive Acres
+    - **Payment** = Eligible Acres × ₹300 (only for payment eligible farms)
     """)
 
-# Show grouping logic
-with st.expander("👥 Updated Grouping Logic"):
+# Show grouping logic - UPDATED
+with st.expander("👥 Updated Grouping and Payment Logic"):
     st.write("""
     **Step 1: Keep All Farms**
     - ALL farms are kept in analysis regardless of AWD Study participation
@@ -833,10 +843,18 @@ with st.expander("👥 Updated Grouping Logic"):
     - Else if `Kharif 25 - AWD Study - Group C - Control (Y/N)` = 1 → **Group C**
     - If none are 1 (all blank/0) → **Group "Unassigned"**
     
+    **Step 3: NEW - Payment Eligibility**
+    - ✅ **Payment Eligible**: `Kharif 25 - AWD Study - Group A - Treatment - complied (Y/N)` = 1
+    - ❌ **Not Payment Eligible**: All other farms (regardless of group)
+    
+    **Step 4: NEW - Acres for Calculation**
+    - **Incentive Acres**: Uses `Kharif 25 - AWD Study - acres for incentive` column
+    - **Payment**: Only calculated for payment eligible farms
+    
     **Values considered as 1:** 1, 1.0, Y, YES, True, T, X
     **Values considered as 0:** 0, 0.0, N, NO, False, F, blank, empty spaces
     
-    **📝 Note:** Blank cells are treated as spaces/0 but farms are kept for analysis
+    **📝 Note:** This separates group assignment from payment eligibility, allowing more precise control over incentive payments.
     """)
 
 # Show new date filter information
@@ -880,4 +898,4 @@ with st.expander("🔐 Secrets Configuration"):
     """)
 
 st.markdown("---")
-st.markdown("*AWD Compliance Analysis Dashboard v11.0 - Using Streamlit Secrets*")
+st.markdown("*AWD Compliance Analysis Dashboard v12.0 - Updated Acres and Payment Logic*")
