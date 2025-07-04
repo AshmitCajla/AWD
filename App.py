@@ -82,7 +82,7 @@ def get_credentials_from_secrets():
     """Get Google Sheets credentials from Streamlit secrets"""
     try:
         # Get credentials from secrets
-        google_secrets = st.secrets["google_sheets"]
+        google_secrets = st.secrets["gcp_service_account"]
         
         credentials_dict = {
             "type": google_secrets["type"],
@@ -502,17 +502,17 @@ def analyze_weekly_compliance(master_df, water_df, week_periods):
     return pd.DataFrame(results)
 
 # Main App Interface
-st.sidebar.header("🔗 Google Sheets Configuration")
+# st.sidebar.header("🔗 Google Sheets Configuration")
 
 # Google Sheets Configuration
 with st.sidebar.expander("🔑 Google Sheets Setup", expanded=True):
-    st.markdown("""
-    **Configuration loaded from secrets.toml**
+    # st.markdown("""
+    # **Configuration loaded from secrets.toml**
     
-    📝 **Service Account:** `masterdata-950@elevated-apex-360403.iam.gserviceaccount.com`
+    # 📝 **Service Account:** `masterdata-950@elevated-apex-360403.iam.gserviceaccount.com`
     
-    ✅ **Setup Status:** Credentials loaded from `.streamlit/secrets.toml`
-    """)
+    # ✅ **Setup Status:** Credentials loaded from `.streamlit/secrets.toml`
+    # """)
     
     # Get configuration from secrets
     app_config = get_app_config_from_secrets()
@@ -524,14 +524,14 @@ with st.sidebar.expander("🔑 Google Sheets Setup", expanded=True):
     else:
         st.success("✅ Credentials loaded successfully")
     
-    # Allow override of sheet URL if needed
-    sheet_url_override = st.text_input(
-        "Override Sheet URL (optional)",
-        placeholder="Leave blank to use URL from secrets.toml"
-    )
+    # # Allow override of sheet URL if needed
+    # sheet_url_override = st.text_input(
+    #     "Override Sheet URL (optional)",
+    #     placeholder="Leave blank to use URL from secrets.toml"
+    # )
     
     # Use override if provided, otherwise use from secrets
-    sheet_url = sheet_url_override.strip() if sheet_url_override.strip() else app_config["sheet_url"]
+    sheet_url =  app_config["sheet_url"]
     worksheet_name = app_config["worksheet_name"]
     
     if not sheet_url:
