@@ -6,6 +6,7 @@ import io
 import gspread
 from google.oauth2.service_account import Credentials
 import json
+import base64
 
 # Note: Add st.set_page_config() at the very beginning of your main script file if needed
 # st.set_page_config(page_title="AWD Compliance Analysis", page_icon="🌾", layout="wide")
@@ -35,99 +36,145 @@ WEEK_PERIODS = [
     (18, "13 October", "15 October", "2025-10-13", "2025-10-15")
 ]
 
-@st.cache_data(ttl=300)  # Cache for 5 minutes
-def connect_to_google_sheets(credentials_dict, sheet_url, worksheet_name=None):
-    """Connect to Google Sheets and return DataFrame"""
+def get_credentials():
+    """Get Google Sheets credentials with multiple fallback methods"""
+    
+    # Method 1: Try from Streamlit secrets (RECOMMENDED for deployment)
     try:
-        # Parse credentials
-        if isinstance(credentials_dict, str):
-            creds_dict = json.loads(credentials_dict)
-        else:
-            creds_dict = credentials_dict
+        if hasattr(st, 'secrets') and 'gcp_service_account' in st.secrets:
+            # Convert secrets to regular dict to allow modifications
+            return dict(st.secrets['gcp_service_account'])
+    except Exception as e:
+        st.warning(f"Could not load from Streamlit secrets: {e}")
+    
+    # Method 2: Try from environment variables
+    try:
+        import os
+        if 'GOOGLE_CREDENTIALS' in os.environ:
+            return json.loads(os.environ['GOOGLE_CREDENTIALS'])
+    except Exception as e:
+        st.warning(f"Could not load from environment: {e}")
+    
+    # Method 3: Try from base64 encoded environment variable
+    try:
+        import os
+        if 'GOOGLE_CREDENTIALS_B64' in os.environ:
+            decoded = base64.b64decode(os.environ['GOOGLE_CREDENTIALS_B64']).decode('utf-8')
+            return json.loads(decoded)
+    except Exception as e:
+        st.warning(f"Could not load from base64 env: {e}")
+    
+    # Method 4: Fallback to hardcoded (NOT RECOMMENDED for production)
+    st.warning("⚠️ Using hardcoded credentials - not recommended for production!")
+    return {
+        "type": "service_account",
+        "project_id": "elevated-apex-360403",
+        "private_key_id": "f81bf9bb9d9e589180b639eae32d1c36f526a960",
+        "private_key": "-----BEGIN PRIVATE KEY-----\nMIIEvgIBADANBgkqhkiG9w0BAQEFAASCBKgwggSkAgEAAoIBAQDQPsw+ss5krgBu\nwtNC/KUZ5qqRXNG8fjYFLf89VFVMhX1o6PlK39UXPPxzGuNwDcd15Q0h3z/n+/3B\nYObQue9Rqq2CSU5PG4GsNbQgVdEHG9Soix+YWl2vbvWe30dU+3lrv3lq2iVAF2Ul\nPiKmyAGMXe7qracqphh3qWKQPVizoO5MgpkrxRG6/ig7H9N9iu1h2N/fcLBVdOib\nlrkeHdg7KnsaoCPZK6FhVckby4qBbjesL1Jh4BclzC7J21js+9w2xomRotVC2Rts\n+2OCF65rj6edDgyxUCkweGxd0EtCfVEMqjjk4lERHUOPawXsB0rCicmJz2BpsPqk\ngenHFvBVAgMBAAECggEAK0VNN978G3f7b4hskQABx3DCcvuEOkRIccmVvnbiVYjs\nXur/9/KsKsy5kSpeZYd7cXAjiy0CMLBQEUlTFL5577CFJqwYSUBIMNIk6E4kpbM+\n/DmSWlw2mNA32ef/wLUTTRQHhPAoqtlhozw2w4yOI85V6W4lbOt/7IdmC14v6vzu\na6xCAX5i/2wFSlwFJQE9IOfl8bjF5o5CBgsrwYcGI9/AeHPcMXQadpMdrYvjpepK\n5ewOrElIWigS2zCnGnKyg54fdFfaCj4Xntpmyk+ooJyaRaYY0WZwTDmoQi9AlMiU\nFENgtnU7tJRnBA+452Rf3Nd6d10vkBbCxz3CM5alsQKBgQD/oJZCzCNpmtZSfQCW\nz/Nj4jJyc8uoViS0TPBlf1SyKll1ZOo8JBaFJxvXULVGm4346BFma19ufz8ozmui\n7D61PL5haKoVLwdi8gDd8hcnQs3H+kbujhSj42/M9kaYDUW3KeFG1ZytqZ6FG6by\nMzJDkZfqFCZxKerZUoSFyvUr0QKBgQDQjIaIZJivYYPA2Y7Z7S+5/1BGQoqQjT4j\nEoDdMARNIJE/6Fu1oV27etKprDCHSWAdYAIk+UpU8JeUKdUFyeMc4pZB0kFsucFl\ncj3JWjWu6y+wqW4vXL0OYBn12ZKH0uZwZRASbg68yofm51QJItIBjVhItW/0yPLl\n03xpaBVRRQKBgQD6/lWrvr8iqQq5sc1LR2Hm+CmqYXJdlj+x3T3Jmu2xho2SDAVG\nCfUmxpC6qJ9ldcU/2bWEB/eLClwcmBntveOQltUj1d3ysNui1pXtVxBO13QwX9kX\n0OAJT37uE/6au6VxRCjTIVkW104zykPw2j4HRESSbTiVsp/KxRAkQnTakQKBgHqc\nlCAunMJIH9FLV7xyweOl4wlb5+Gy2Px/zXm92FmMMzmSoBC6bcRjIuYU0XdIwZSj\ntL8OPhCQX14B9jdwCfIameLa/hIxaC3/q6ntOrC7n49LHfgEmzaPc9Pidk8axNcB\n5CAhytJedOZhzTuN2FCHTId6/Pa7CmvrGjNSuW3NAoGBAMTTcVApBUYxrdNmDBb0\npihcmVWvB/C5iARUyYNQqCbWClEIR6/Tj2TdUphCRxZ4w+oDflzYAJPX1q0vQKmv\nuDEkUn9W8yacAdde8VmtkmGAYZSP/E5spwx8axMIDXZ5bvq7Zyj+nqh8U7uHZ5kC\nbqNY3Ihy7lm0x+IZQYz+Tbf6\n-----END PRIVATE KEY-----\n",
+        "client_email": "masterdata-950@elevated-apex-360403.iam.gserviceaccount.com",
+        "client_id": "109484565593844446221",
+        "auth_uri": "https://accounts.google.com/o/oauth2/auth",
+        "token_uri": "https://oauth2.googleapis.com/token",
+        "auth_provider_x509_cert_url": "https://www.googleapis.com/oauth2/v1/certs",
+        "client_x509_cert_url": "https://www.googleapis.com/robot/v1/metadata/x509/masterdata-950%40elevated-apex-360403.iam.gserviceaccount.com",
+        "universe_domain": "googleapis.com"
+    }
+
+@st.cache_data(ttl=300)  # Cache for 5 minutes
+def connect_to_google_sheets(sheet_url, worksheet_name=None):
+    """Connect to Google Sheets and return DataFrame with improved error handling"""
+    try:
+        # Get credentials using the new method
+        creds_dict = get_credentials()
+        
+        # Validate credentials structure
+        required_keys = ['type', 'project_id', 'private_key', 'client_email']
+        missing_keys = [key for key in required_keys if key not in creds_dict]
+        if missing_keys:
+            st.error(f"❌ Missing required credential keys: {missing_keys}")
+            return None
+        
+        # Clean up the private key (remove extra whitespace/newlines that might cause issues)
+        if 'private_key' in creds_dict:
+            private_key = creds_dict['private_key']
+            # Ensure proper formatting
+            if not private_key.startswith('-----BEGIN PRIVATE KEY-----'):
+                st.error("❌ Invalid private key format")
+                return None
+            
+            # Clean up any potential formatting issues and update the dict
+            creds_dict = creds_dict.copy()  # Make a copy to avoid modifying original
+            creds_dict['private_key'] = private_key.replace('\\n', '\n')
         
         # Set up credentials and scope
-        scope = ['https://spreadsheets.google.com/feeds',
-                'https://www.googleapis.com/auth/drive']
+        scope = [
+            'https://spreadsheets.google.com/feeds',
+            'https://www.googleapis.com/auth/drive'
+        ]
         
-        credentials = Credentials.from_service_account_info(creds_dict, scopes=scope)
-        gc = gspread.authorize(credentials)
+        # Create credentials with error handling
+        try:
+            credentials = Credentials.from_service_account_info(creds_dict, scopes=scope)
+        except Exception as cred_error:
+            st.error(f"❌ Error creating credentials: {str(cred_error)}")
+            st.error("This usually indicates an issue with the private key format or credential data")
+            return None
+        
+        # Authorize the client
+        try:
+            gc = gspread.authorize(credentials)
+        except Exception as auth_error:
+            st.error(f"❌ Error authorizing with Google: {str(auth_error)}")
+            if "Invalid JWT Signature" in str(auth_error):
+                st.error("🔑 JWT Signature error - please check your service account credentials")
+                st.info("💡 Try regenerating your service account key from Google Cloud Console")
+            return None
         
         # Open the spreadsheet
-        if sheet_url.startswith('https://docs.google.com/spreadsheets/d/'):
-            # Extract sheet ID from URL
-            sheet_id = sheet_url.split('/d/')[1].split('/')[0]
-            sheet = gc.open_by_key(sheet_id)
-        else:
-            # Assume it's a sheet name
-            sheet = gc.open(sheet_url)
+        try:
+            if sheet_url.startswith('https://docs.google.com/spreadsheets/d/'):
+                # Extract sheet ID from URL
+                sheet_id = sheet_url.split('/d/')[1].split('/')[0]
+                sheet = gc.open_by_key(sheet_id)
+            else:
+                # Assume it's a sheet name
+                sheet = gc.open(sheet_url)
+        except Exception as sheet_error:
+            st.error(f"❌ Error opening spreadsheet: {str(sheet_error)}")
+            st.info("📋 Make sure the sheet is shared with: masterdata-950@elevated-apex-360403.iam.gserviceaccount.com")
+            return None
         
         # Get worksheet
-        if worksheet_name:
-            worksheet = sheet.worksheet(worksheet_name)
-        else:
-            worksheet = sheet.get_worksheet(0)  # First worksheet
+        try:
+            if worksheet_name:
+                worksheet = sheet.worksheet(worksheet_name)
+            else:
+                worksheet = sheet.get_worksheet(0)  # First worksheet
+        except Exception as ws_error:
+            st.error(f"❌ Error accessing worksheet '{worksheet_name}': {str(ws_error)}")
+            available_sheets = [ws.title for ws in sheet.worksheets()]
+            st.info(f"📄 Available worksheets: {', '.join(available_sheets)}")
+            return None
         
         # Get all data
-        data = worksheet.get_all_records()
-        df = pd.DataFrame(data)
+        try:
+            data = worksheet.get_all_records()
+            df = pd.DataFrame(data)
+        except Exception as data_error:
+            st.error(f"❌ Error reading data: {str(data_error)}")
+            return None
         
-        st.success(f"✅ Connected to Google Sheets: {len(df)} rows loaded")
+        if df.empty:
+            st.warning("⚠️ The worksheet appears to be empty")
+            return None
+        
+        st.success(f"✅ Connected to Google Sheets: {len(df)} rows loaded from '{worksheet.title}'")
         return df
         
     except Exception as e:
-        st.error(f"❌ Error connecting to Google Sheets: {str(e)}")
+        st.error(f"❌ Unexpected error connecting to Google Sheets: {str(e)}")
+        st.exception(e)  # Show full traceback for debugging
         return None
-
-def get_credentials_from_secrets():
-    """Get Google Sheets credentials from Streamlit secrets"""
-    try:
-        # Get credentials from secrets
-        google_secrets = st.secrets["google_sheets"]
-        
-        credentials_dict = {
-            "type": google_secrets["type"],
-            "project_id": google_secrets["project_id"],
-            "private_key_id": google_secrets["private_key_id"],
-            "private_key": google_secrets["private_key"],
-            "client_email": google_secrets["client_email"],
-            "client_id": google_secrets["client_id"],
-            "auth_uri": google_secrets["auth_uri"],
-            "token_uri": google_secrets["token_uri"],
-            "auth_provider_x509_cert_url": google_secrets["auth_provider_x509_cert_url"],
-            "client_x509_cert_url": google_secrets["client_x509_cert_url"],
-            "universe_domain": google_secrets["universe_domain"]
-        }
-        
-        return credentials_dict
-        
-    except KeyError as e:
-        st.error(f"❌ Missing secret: {str(e)}")
-        st.error("Please check your .streamlit/secrets.toml file configuration")
-        return None
-    except Exception as e:
-        st.error(f"❌ Error loading secrets: {str(e)}")
-        return None
-
-def get_app_config_from_secrets():
-    """Get app configuration from Streamlit secrets"""
-    try:
-        app_config = st.secrets["app_config"]
-        return {
-            "sheet_url": app_config["sheet_url"],
-            "worksheet_name": app_config["worksheet_name"]
-        }
-    except KeyError:
-        # Return defaults if not in secrets
-        return {
-            "sheet_url": "",
-            "worksheet_name": "Farm details"
-        }
-    except Exception as e:
-        st.error(f"❌ Error loading app config: {str(e)}")
-        return {
-            "sheet_url": "",
-            "worksheet_name": "Farm details"
-        }
 
 def process_uploaded_file(uploaded_file, file_type):
     """Process uploaded files with error handling"""
