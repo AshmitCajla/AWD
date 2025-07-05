@@ -6,9 +6,69 @@ import io
 import gspread
 from google.oauth2.service_account import Credentials
 import json
+import time
+import threading
+import logging
 
-# Note: Add st.set_page_config() at the very beginning of your main script file if needed
-# st.set_page_config(page_title="AWD Compliance Analysis", page_icon="🌾", layout="wide")
+# Configure page
+st.set_page_config(
+    page_title="AWD Compliance Dashboard",
+    page_icon="🌾",
+    layout="wide",
+    initial_sidebar_state="expanded"
+)
+
+# Initialize session state for auto-refresh
+if 'last_refresh' not in st.session_state:
+    st.session_state.last_refresh = datetime.now()
+if 'refresh_interval' not in st.session_state:
+    st.session_state.refresh_interval = 300  # 5 minutes in seconds
+if 'auto_refresh_enabled' not in st.session_state:
+    st.session_state.auto_refresh_enabled = True
+if 'connection_status' not in st.session_state:
+    st.session_state.connection_status = "Unknown"
+if 'error_count' not in st.session_state:
+    st.session_state.error_count = 0
+
+# Auto-refresh logic
+def should_refresh():
+    """Check if data should be refreshed"""
+    if not st.session_state.auto_refresh_enabled:
+        return False
+    
+    time_since_refresh = (datetime.now() - st.session_state.last_refresh).total_seconds()
+    return time_since_refresh >= st.session_state.refresh_interval
+
+def force_refresh():
+    """Force a refresh by clearing cache and updating timestamp"""
+    connect_to_google_sheets.clear()
+    st.session_state.last_refresh = datetime.now()
+    st.session_state.error_count = 0
+
+# Auto-refresh timer in sidebar
+def display_refresh_timer():
+    """Display countdown timer and auto-refresh controls"""
+    time_since_refresh = (datetime.now() - st.session_state.last_refresh).total_seconds()
+    time_until_refresh = max(0, st.session_state.refresh_interval - time_since_refresh)
+    
+    if st.session_state.auto_refresh_enabled:
+        minutes = int(time_until_refresh // 60)
+        seconds = int(time_until_refresh % 60)
+        
+        if time_until_refresh > 0:
+            st.sidebar.info(f"⏱️ Next refresh in: {minutes:02d}:{seconds:02d}")
+        else:
+            st.sidebar.success("🔄 Refreshing now...")
+    else:
+        st.sidebar.warning("⏸️ Auto-refresh disabled")
+    
+    # Connection status
+    if st.session_state.connection_status == "Connected":
+        st.sidebar.success(f"✅ Connected (Errors: {st.session_state.error_count})")
+    elif st.session_state.connection_status == "Error":
+        st.sidebar.error(f"❌ Connection Error (Count: {st.session_state.error_count})")
+    else:
+        st.sidebar.info("🔄 Checking connection...")
 
 st.title("🌾 AWD Compliance Analysis Dashboard")
 st.markdown("---")
@@ -35,15 +95,15 @@ WEEK_PERIODS = [
     (18, "13 October", "15 October", "2025-10-13", "2025-10-15")
 ]
 
-@st.cache_data(ttl=300)  # Cache for 5 minutes
-def connect_to_google_sheets(credentials_dict, sheet_url, worksheet_name=None):
-    """Connect to Google Sheets and return DataFrame"""
+@st.cache_data(ttl=60, show_spinner=False)  # Reduced to 1 minute for more responsive caching
+def connect_to_google_sheets(credentials_json, sheet_url, worksheet_name=None, force_refresh_flag=None):
+    """Connect to Google Sheets and return DataFrame with enhanced error handling"""
     try:
         # Parse credentials
-        if isinstance(credentials_dict, str):
-            creds_dict = json.loads(credentials_dict)
+        if isinstance(credentials_json, str):
+            creds_dict = json.loads(credentials_json)
         else:
-            creds_dict = credentials_dict
+            creds_dict = credentials_json
         
         # Set up credentials and scope
         scope = ['https://spreadsheets.google.com/feeds',
@@ -52,82 +112,56 @@ def connect_to_google_sheets(credentials_dict, sheet_url, worksheet_name=None):
         credentials = Credentials.from_service_account_info(creds_dict, scopes=scope)
         gc = gspread.authorize(credentials)
         
-        # Open the spreadsheet
+        # Open the spreadsheet with timeout
         if sheet_url.startswith('https://docs.google.com/spreadsheets/d/'):
-            # Extract sheet ID from URL
             sheet_id = sheet_url.split('/d/')[1].split('/')[0]
             sheet = gc.open_by_key(sheet_id)
         else:
-            # Assume it's a sheet name
             sheet = gc.open(sheet_url)
         
         # Get worksheet
         if worksheet_name:
             worksheet = sheet.worksheet(worksheet_name)
         else:
-            worksheet = sheet.get_worksheet(0)  # First worksheet
+            worksheet = sheet.get_worksheet(0)
         
         # Get all data
         data = worksheet.get_all_records()
         df = pd.DataFrame(data)
         
-        st.success(f"✅ Connected to Google Sheets: {len(df)} rows loaded")
+        # Update connection status
+        st.session_state.connection_status = "Connected"
+        st.session_state.error_count = max(0, st.session_state.error_count - 1)  # Reduce error count on success
+        
         return df
         
-    except Exception as e:
-        st.error(f"❌ Error connecting to Google Sheets: {str(e)}")
-        return None
-
-def get_credentials_from_secrets():
-    """Get Google Sheets credentials from Streamlit secrets"""
-    try:
-        # Get credentials from secrets
-        google_secrets = st.secrets["gcp_service_account"]
+    except gspread.exceptions.APIError as e:
+        st.session_state.connection_status = "Error"
+        st.session_state.error_count += 1
+        error_msg = f"Google Sheets API Error: {str(e)}"
+        logging.error(error_msg)
         
-        credentials_dict = {
-            "type": google_secrets["type"],
-            "project_id": google_secrets["project_id"],
-            "private_key_id": google_secrets["private_key_id"],
-            "private_key": google_secrets["private_key"],
-            "client_email": google_secrets["client_email"],
-            "client_id": google_secrets["client_id"],
-            "auth_uri": google_secrets["auth_uri"],
-            "token_uri": google_secrets["token_uri"],
-            "auth_provider_x509_cert_url": google_secrets["auth_provider_x509_cert_url"],
-            "client_x509_cert_url": google_secrets["client_x509_cert_url"],
-            "universe_domain": google_secrets["universe_domain"]
-        }
-        
-        return credentials_dict
-        
-    except KeyError as e:
-        st.error(f"❌ Missing secret: {str(e)}")
-        st.error("Please check your .streamlit/secrets.toml file configuration")
-        return None
+        # Return cached data if available
+        if 'master_df_cache' in st.session_state:
+            st.warning(f"⚠️ Using cached data due to API error: {error_msg}")
+            return None  # Let the calling function handle cached data
+        else:
+            st.error(f"❌ {error_msg}")
+            return None
+            
     except Exception as e:
-        st.error(f"❌ Error loading secrets: {str(e)}")
-        return None
-
-def get_app_config_from_secrets():
-    """Get app configuration from Streamlit secrets"""
-    try:
-        app_config = st.secrets["app_config"]
-        return {
-            "sheet_url": app_config["sheet_url"],
-            "worksheet_name": app_config["worksheet_name"]
-        }
-    except KeyError:
-        # Return defaults if not in secrets
-        return {
-            "sheet_url": "",
-            "worksheet_name": "Farm details"
-        }
-    except Exception as e:
-        st.error(f"❌ Error loading app config: {str(e)}")
-        return {
-            "sheet_url": "",
-            "worksheet_name": "Farm details"
-        }
+        st.session_state.connection_status = "Error" 
+        st.session_state.error_count += 1
+        error_msg = f"Connection Error: {str(e)}"
+        logging.error(error_msg)
+        
+        # Return cached data if available
+        if 'master_df_cache' in st.session_state:
+            st.warning(f"⚠️ Using cached data due to connection error: {error_msg}")
+            return None
+        else:
+            st.error(f"❌ {error_msg}")
+            return None
 
 def process_uploaded_file(uploaded_file, file_type):
     """Process uploaded files with error handling"""
@@ -158,14 +192,11 @@ def is_positive_value(value):
     if pd.isna(value):
         return False
     
-    # Convert to string and clean
     str_val = str(value).strip().upper()
     
-    # Check for empty or null-like values
     if str_val in ['', '0', '0.0', 'NO', 'N', 'FALSE', 'F', 'NAN', 'NA', 'NONE']:
         return False
     
-    # Check for positive values
     if str_val in ['1', '1.0', 'YES', 'Y', 'TRUE', 'T', 'X']:
         return True
     
@@ -176,13 +207,11 @@ def clean_master_data(df):
     try:
         df_clean = df.copy()
         
-        # Find columns using flexible matching - updated based on actual sheet structure
+        # Find columns using flexible matching
         farm_id_col = find_column(df_clean, ['kharif 25 farm id'], 'Farm_ID')
         farmer_name_col = find_column(df_clean, ['Kharif 25 Farmer Name'], 'Farmer_Name')
         village_col = find_column(df_clean, ['Kharif 25 Village'], 'Village')
-        
-        # Use the specific incentive acres column as requested
-        incentive_acres_col = 'Kharif 25 - AWD Study - acres for incentive'
+        acres_col = find_column(df_clean, ['kharif 25 - awd study - acres for incentive', 'kharif 25 acres on earth', 'acres', 'acreage', 'incentive acres'], 'Acres')
         
         # Exact column names as they appear in the actual sheet
         awd_study_col = 'Kharif 25 - AWD Study (Y/N)'
@@ -190,10 +219,7 @@ def clean_master_data(df):
         group_b_col = 'Kharif 25 - AWD Study - Group B -training only (Y/N)'
         group_c_col = 'Kharif 25 - AWD Study - Group C - Control (Y/N)'
         
-        # NEW: Column for compliance-based incentive eligibility
-        group_a_complied_col = 'Kharif 25 - AWD Study - Group A - Treatment - complied (Y/N)'
-        
-        # Check if required columns exist and show what was found
+        # Check if required columns exist
         missing_cols = []
         found_cols = []
         
@@ -201,35 +227,15 @@ def clean_master_data(df):
             ('AWD Study', awd_study_col),
             ('Group A', group_a_col), 
             ('Group B', group_b_col),
-            ('Group C', group_c_col),
-            ('Group A Complied', group_a_complied_col),
-            ('Incentive Acres', incentive_acres_col)
+            ('Group C', group_c_col)
         ]:
             if col_var not in df_clean.columns:
                 missing_cols.append(f"{col_name}: '{col_var}'")
             else:
                 found_cols.append(f"{col_name}: ✅ Found")
         
-        # Show found columns
-        if found_cols:
-            st.success("Found columns: " + ", ".join(found_cols))
-        
-        # Show what basic columns were found
-        basic_cols_found = []
-        if farm_id_col:
-            basic_cols_found.append(f"Farm ID: '{farm_id_col}'")
-        if farmer_name_col:
-            basic_cols_found.append(f"Farmer Name: '{farmer_name_col}'")
-        if village_col:
-            basic_cols_found.append(f"Village: '{village_col}'")
-        
-        if basic_cols_found:
-            st.info("Basic columns found: " + ", ".join(basic_cols_found))
-        
         if missing_cols:
             st.error(f"❌ Missing required columns:\n" + "\n".join(missing_cols))
-            st.info("Available columns containing 'kharif' or 'awd': " + 
-                   ", ".join([col for col in df_clean.columns if 'kharif' in col.lower() or 'awd' in col.lower()]))
             return None
         
         # Standardize basic columns
@@ -237,69 +243,36 @@ def clean_master_data(df):
         df_clean['Farmer_Name'] = df_clean[farmer_name_col].astype(str).fillna("Unknown_Farmer") if farmer_name_col else "Unknown_Farmer"
         df_clean['Village'] = df_clean[village_col].astype(str).fillna("Unknown_Village") if village_col else "Unknown_Village"
         
-        # Handle incentive acres column specifically
-        if incentive_acres_col in df_clean.columns:
-            df_clean['Incentive_Acres'] = pd.to_numeric(df_clean[incentive_acres_col], errors='coerce').fillna(0).clip(lower=0)
-            st.success(f"✅ Using incentive acres from: '{incentive_acres_col}'")
+        if acres_col:
+            df_clean['Acres'] = pd.to_numeric(df_clean[acres_col], errors='coerce')
+            df_clean['Acres'] = df_clean['Acres'].fillna(0).clip(lower=0)
         else:
-            df_clean['Incentive_Acres'] = 0
-            st.warning(f"⚠️ Incentive acres column not found, using 0 for all farms")
+            df_clean['Acres'] = 0
         
-        # Create AWD study flag but DON'T filter - keep all farms
+        # Create AWD study flag
         df_clean['awd_study_flag'] = df_clean[awd_study_col].apply(is_positive_value)
-        awd_participants = df_clean['awd_study_flag'].sum()
-        total_farms = len(df_clean)
         
-        st.info(f"📊 AWD Study Status: {awd_participants} participants, {total_farms - awd_participants} non-participants (keeping all {total_farms} farms)")
-        
-        # Assign groups with hierarchical logic - but keep unassigned farms
+        # Assign groups with hierarchical logic
         def assign_group_hierarchical(row):
-            # Check Group A first
             if is_positive_value(row[group_a_col]):
                 return 'A'
-            
-            # If A is not 1, check Group B
             if is_positive_value(row[group_b_col]):
                 return 'B'
-            
-            # If B is not 1, check Group C
             if is_positive_value(row[group_c_col]):
                 return 'C'
-            
-            # If none are 1, assign as Unassigned instead of removing
             return 'Unassigned'
         
         df_clean['Group'] = df_clean.apply(assign_group_hierarchical, axis=1)
         
-        # NEW: Add compliance flag for Group A Treatment
-        df_clean['Group_A_Complied'] = df_clean[group_a_complied_col].apply(is_positive_value)
-        
-        # Show group distribution and compliance status
-        group_counts = df_clean['Group'].value_counts()
-        compliance_counts = df_clean['Group_A_Complied'].sum()
-        st.success(f"✅ Group Distribution: {group_counts.to_dict()}")
-        st.success(f"✅ Group A Treatment Complied: {compliance_counts} farms")
-        
-        # Show sample of actual values in AWD columns for debugging
-        st.info("📊 Sample AWD Column Values:")
-        sample_cols = [farm_id_col, awd_study_col, group_a_col, group_b_col, group_c_col, group_a_complied_col, 'Group', 'Group_A_Complied']
-        sample_data = df_clean[sample_cols].head(10)
-        st.dataframe(sample_data, use_container_width=True)
-        
-        # Return cleaned data with necessary columns
-        final_df = df_clean[['Farm_ID', 'Farmer_Name', 'Village', 'Incentive_Acres', 'Group', 'Group_A_Complied']].copy()
-        
-        # Only remove rows with completely missing Farm_ID
+        # Return cleaned data
+        final_df = df_clean[['Farm_ID', 'Farmer_Name', 'Village', 'Acres', 'Group']].copy()
         final_df = final_df.dropna(subset=['Farm_ID'])
         final_df = final_df[final_df['Farm_ID'] != 'Unknown_Farm']
-        
-        st.success(f"✅ Final clean data: {len(final_df)} farms ready for analysis")
         
         return final_df
         
     except Exception as e:
         st.error(f"❌ Error cleaning master data: {str(e)}")
-        st.exception(e)  # Show full traceback for debugging
         return None
 
 def clean_water_data(df):
@@ -366,7 +339,7 @@ def analyze_pipe_compliance(pipe_data):
     # Sort by date
     pipe_data = pipe_data.sort_values('Date')
     first_measurement = pipe_data.iloc[0]
-    second_measurement = pipe_data.iloc[-1]  # Use last measurement if more than 2
+    second_measurement = pipe_data.iloc[-1]
     
     first_date = first_measurement['Date'].strftime('%d/%m')
     first_value = int(first_measurement['Water_Level_mm'])
@@ -446,7 +419,6 @@ def analyze_weekly_compliance(master_df, water_df, week_periods):
             farm_water_data = week_data[week_data['Farm_ID'] == farm_master_data['Farm_ID']]
             
             if farm_water_data.empty:
-                # No data for this farm this week
                 results.append({
                     'Week': int(week_num),
                     'Week_Period': f"{week_info[1]} - {week_info[2]}",
@@ -454,8 +426,7 @@ def analyze_weekly_compliance(master_df, water_df, week_periods):
                     'Farm_ID': farm_master_data['Farm_ID'],
                     'Farmer_Name': farm_master_data['Farmer_Name'],
                     'Group': farm_master_data['Group'],
-                    'Group_A_Complied': farm_master_data['Group_A_Complied'],
-                    'Total_Incentive_Acres': farm_master_data['Incentive_Acres'],
+                    'Total_Acres': farm_master_data['Acres'],
                     'Pipes_Installed': 0,
                     'Pipes_Passing': 0,
                     'Non_Compliant_Pipes': '',
@@ -487,15 +458,13 @@ def analyze_weekly_compliance(master_df, water_df, week_periods):
             
             # Calculate metrics
             proportion_passing = pipes_passing / pipes_installed if pipes_installed > 0 else 0
-            eligible_acres = proportion_passing * farm_master_data['Incentive_Acres']
+            eligible_acres = proportion_passing * farm_master_data['Acres']
             
-            # UPDATED: Payment only for farms with Group A Treatment Complied = 1
-            if farm_master_data['Group_A_Complied']:
+            # Payment only for Group A
+            if farm_master_data['Group'] == 'A':
                 amount_to_pay = eligible_acres * 300
-                payment_eligible = True
             else:
                 amount_to_pay = 0
-                payment_eligible = False
             
             results.append({
                 'Week': int(week_num),
@@ -504,9 +473,7 @@ def analyze_weekly_compliance(master_df, water_df, week_periods):
                 'Farm_ID': farm_master_data['Farm_ID'],
                 'Farmer_Name': farm_master_data['Farmer_Name'],
                 'Group': farm_master_data['Group'],
-                'Group_A_Complied': farm_master_data['Group_A_Complied'],
-                'Payment_Eligible': payment_eligible,
-                'Total_Incentive_Acres': farm_master_data['Incentive_Acres'],
+                'Total_Acres': farm_master_data['Acres'],
                 'Pipes_Installed': pipes_installed,
                 'Pipes_Passing': pipes_passing,
                 'Non_Compliant_Pipes': '; '.join(non_compliant_pipes) if non_compliant_pipes else '',
@@ -519,59 +486,122 @@ def analyze_weekly_compliance(master_df, water_df, week_periods):
     
     return pd.DataFrame(results)
 
-# Main App Interface
-# st.sidebar.header("🔗 Google Sheets Configuration")
+# AUTO-REFRESH CONTROLS IN SIDEBAR
+st.sidebar.header("🔄 Auto-Refresh Settings")
 
-# Google Sheets Configuration
+with st.sidebar.expander("⚙️ Refresh Controls", expanded=True):
+    # Display current status
+    display_refresh_timer()
+    
+    # Auto-refresh toggle
+    auto_refresh = st.checkbox(
+        "Enable Auto-Refresh", 
+        value=st.session_state.auto_refresh_enabled,
+        help="Automatically refresh data every 5 minutes"
+    )
+    st.session_state.auto_refresh_enabled = auto_refresh
+    
+    # Refresh interval selector
+    refresh_options = {
+        "1 minute": 60,
+        "2 minutes": 120, 
+        "5 minutes": 300,
+        "10 minutes": 600,
+        "15 minutes": 900
+    }
+    
+    current_interval_label = next(
+        (label for label, value in refresh_options.items() 
+         if value == st.session_state.refresh_interval), 
+        "5 minutes"
+    )
+    
+    selected_interval = st.selectbox(
+        "Refresh Interval",
+        options=list(refresh_options.keys()),
+        index=list(refresh_options.keys()).index(current_interval_label),
+        help="How often to refresh the data"
+    )
+    st.session_state.refresh_interval = refresh_options[selected_interval]
+    
+    # Manual refresh button
+    col1, col2 = st.columns(2)
+    with col1:
+        if st.button("🔄 Refresh Now", use_container_width=True):
+            force_refresh()
+            st.rerun()
+    
+    with col2:
+        if st.button("📊 Status", use_container_width=True):
+            st.info(f"Last refresh: {st.session_state.last_refresh.strftime('%H:%M:%S')}")
+
+# GOOGLE SHEETS CONFIGURATION
 with st.sidebar.expander("🔑 Google Sheets Setup", expanded=True):
-    # Get configuration from secrets
-    app_config = get_app_config_from_secrets()
-    credentials_dict = get_credentials_from_secrets()
+    # Hardcoded credentials
+    credentials_dict = {
+        "type": "service_account",
+        "project_id": "elevated-apex-360403",
+        "private_key_id": "f81bf9bb9d9e589180b639eae32d1c36f526a960",
+        "private_key": "-----BEGIN PRIVATE KEY-----\nMIIEvgIBADANBgkqhkiG9w0BAQEFAASCBKgwggSkAgEAAoIBAQDQPsw+ss5krgBu\nwtNC/KUZ5qqRXNG8fjYFLf89VFVMhX1o6PlK39UXPPxzGuNwDcd15Q0h3z/n+/3B\nYObQue9Rqq2CSU5PG4GsNbQgVdEHG9Soix+YWl2vbvWe30dU+3lrv3lq2iVAF2Ul\nPiKmyAGMXe7qracqphh3qWKQPVizoO5MgpkrxRG6/ig7H9N9iu1h2N/fcLBVdOib\nlrkeHdg7KnsaoCPZK6FhVckby4qBbjesL1Jh4BclzC7J21js+9w2xomRotVC2Rts\n+2OCF65rj6edDgyxUCkweGxd0EtCfVEMqjjk4lERHUOPawXsB0rCicmJz2BpsPqk\ngenHFvBVAgMBAAECggEAK0VNN978G3f7b4hskQABx3DCcvuEOkRIccmVvnbiVYjs\nXur/9/KsKsy5kSpeZYd7cXAjiy0CMLBQEUlTFL5577CFJqwYSUBIMNIk6E4kpbM+\n/DmSWlw2mNA32ef/wLUTTRQHhPAoqtlhozw2w4yOI85V6W4lbOt/7IdmC14v6vzu\na6xCAX5i/2wFSlwFJQE9IOfl8bjF5o5CBgsrwYcGI9/AeHPcMXQadpMdrYvjpepK\n5ewOrElIWigS2zCnGnKyg54fdFfaCj4Xntpmyk+ooJyaRaYY0WZwTDmoQi9AlMiU\nFENgtnU7tJRnBA+452Rf3Nd6d10vkBbCxz3CM5alsQKBgQD/oJZCzCNpmtZSfQCW\nz/Nj4jJyc8uoViS0TPBlf1SyKll1ZOo8JBaFJxvXULVGm4346BFma19ufz8ozmui\n7D61PL5haKoVLwdi8gDd8hcnQs3H+kbujhSj42/M9kaYDUW3KeFG1ZytqZ6FG6by\nMzJDkZfqFCZxKerZUoSFyvUr0QKBgQDQjIaIZJivYYPA2Y7Z7S+5/1BGQoqQjT4j\nEoDdMARNIJE/6Fu1oV27etKprDCHSWAdYAIk+UpU8JeUKdUFyeMc4pZB0kFsucFl\ncj3JWjWu6y+wqW4vXL0OYBn12ZKH0uZwZRASbg68yofm51QJItIBjVhItW/0yPLl\n03xpaBVRRQKBgQD6/lWrvr8iqQq5sc1LR2Hm+CmqYXJdlj+x3T3Jmu2xho2SDAVG\nCfUmxpC6qJ9ldcU/2bWEB/eLClwcmBntveOQltUj1d3ysNui1pXtVxBO13QwX9kX\n0OAJT37uE/6au6VxRCjTIVkW104zykPw2j4HRESSbTiVsp/KxRAkQnTakQKBgHqc\nlCAunMJIH9FLV7xyweOl4wlb5+Gy2Px/zXm92FmMMzmSoBC6bcRjIuYU0XdIwZSj\ntL8OPhCQX14B9jdwCfIameLa/hIxaC3/q6ntOrC7n49LHfgEmzaPc9Pidk8axNcB\n5CAhytJedOZhzTuN2FCHTId6/Pa7CmvrGjNSuW3NAoGBAMTTcVApBUYxrdNmDBb0\npihcmVWvB/C5iARUyYNQqCbWClEIR6/Tj2TdUphCRxZ4w+oDflzYAJPX1q0vQKmv\nuDEkUn9W8yacAdde8VmtkmGAYZSP/E5spwx8axMIDXZ5bvq7Zyj+nqh8U7uHZ5kC\nbqNY3Ihy7lm0x+IZQYz+Tbf6\n-----END PRIVATE KEY-----\n",
+        "client_email": "masterdata-950@elevated-apex-360403.iam.gserviceaccount.com",
+        "client_id": "109484565593844446221",
+        "auth_uri": "https://accounts.google.com/o/oauth2/auth",
+        "token_uri": "https://oauth2.googleapis.com/token",
+        "auth_provider_x509_cert_url": "https://www.googleapis.com/oauth2/v1/certs",
+        "client_x509_cert_url": "https://www.googleapis.com/robot/v1/metadata/x509/masterdata-950%40elevated-apex-360403.iam.gserviceaccount.com",
+        "universe_domain": "googleapis.com"
+    }
     
-    if credentials_dict is None:
-        st.error("❌ Failed to load credentials from secrets.toml")
-        st.stop()
-    else:
-        st.success("✅ Credentials loaded successfully")
-    
-    # Use override if provided, otherwise use from secrets
-    sheet_url =  app_config["sheet_url"]
-    worksheet_name = app_config["worksheet_name"]
-    
-    if not sheet_url:
-        st.warning("⚠️ No Google Sheets URL configured. Please add to secrets.toml or enter above.")
-    
-    refresh_data = st.button("🔄 Refresh Master Data", help="Reload data from Google Sheets")
+    sheet_url = 'https://docs.google.com/spreadsheets/d/10_bnGF7WBZ0J3aSvl8riufNbZjXAxB7wcnN3545fGzw/'
+    worksheet_name = "Farm details"
 
 st.sidebar.header("📁 Water Data Upload")
 
-# Water file upload (keeping this as file upload)
+# Water file upload
 water_file = st.sidebar.file_uploader(
     "Upload Water Level Data", 
     type=['xlsx'],
     help="Upload Excel/CSV file with water measurements"
 )
 
+# AUTO-REFRESH LOGIC
 master_df = None
 water_df = None
 
+# Check if we should refresh or use cached data
+should_auto_refresh = should_refresh()
+
 # Load master data from Google Sheets
-if sheet_url and (refresh_data or 'master_df_cache' not in st.session_state):
-    with st.spinner("Connecting to Google Sheets..."):
-        raw_master = connect_to_google_sheets(credentials_dict, sheet_url, worksheet_name)
+if sheet_url and (should_auto_refresh or 'master_df_cache' not in st.session_state):
+    with st.spinner("🔄 Syncing with Google Sheets..."):
+        # Create a force refresh flag to bypass cache when needed
+        force_flag = datetime.now().timestamp() if should_auto_refresh else None
+        raw_master = connect_to_google_sheets(credentials_dict, sheet_url, worksheet_name, force_flag)
     
     if raw_master is not None:
         master_df = clean_master_data(raw_master)
         if master_df is not None:
             st.session_state['master_df_cache'] = master_df
-            st.sidebar.success(f"✅ Master data loaded: {len(master_df)} farms")
-            st.sidebar.write(f"Groups distribution: {master_df['Group'].value_counts().to_dict()}")
-            st.sidebar.write(f"Payment eligible farms: {master_df['Group_A_Complied'].sum()}")
+            st.session_state.last_refresh = datetime.now()
+            st.sidebar.success(f"✅ Data synced: {len(master_df)} farms")
+            st.sidebar.write(f"Groups: {master_df['Group'].value_counts().to_dict()}")
         else:
             st.sidebar.error("❌ Failed to process master data")
+            # Use cached data if processing fails
+            if 'master_df_cache' in st.session_state:
+                master_df = st.session_state['master_df_cache']
+                st.sidebar.warning("⚠️ Using cached data due to processing error")
+    else:
+        # Connection failed, use cached data if available
+        if 'master_df_cache' in st.session_state:
+            master_df = st.session_state['master_df_cache']
+            st.sidebar.warning("⚠️ Connection failed, using cached data")
+        else:
+            st.sidebar.error("❌ No cached data available")
+
 elif 'master_df_cache' in st.session_state:
     master_df = st.session_state['master_df_cache']
-    st.sidebar.success(f"✅ Using cached master data: {len(master_df)} farms")
+    st.sidebar.success(f"✅ Using cached data: {len(master_df)} farms")
 
 # Load water data from file upload
 if water_file:
@@ -580,6 +610,10 @@ if water_file:
         water_df = clean_water_data(raw_water)
         if water_df is not None:
             st.sidebar.success(f"✅ Water data processed: {len(water_df)} measurements")
+
+# AUTO-REFRESH PAGE LOGIC
+if st.session_state.auto_refresh_enabled and should_refresh():
+    st.rerun()
 
 # Main Analysis
 if master_df is not None and water_df is not None:
@@ -595,7 +629,6 @@ if master_df is not None and water_df is not None:
         st.write(f"Total farms: {len(master_df)}")
         st.write("Group distribution:")
         st.write(master_df['Group'].value_counts())
-        st.write(f"Payment eligible farms (Group A Complied): {master_df['Group_A_Complied'].sum()}")
     
     with col2:
         st.subheader("Water Level Data (Upload)")
@@ -610,7 +643,7 @@ if master_df is not None and water_df is not None:
     # Filters
     st.sidebar.header("🔍 Filters")
     
-    # Date Range Filter - NEW ADDITION
+    # Date Range Filter
     st.sidebar.subheader("📅 Date Range Filter")
     
     # Get available date range from water data
@@ -669,8 +702,8 @@ if master_df is not None and water_df is not None:
         default=available_villages
     )
     
-    # Status filter - UPDATED
-    status_options = ['All', 'Compliant Farms Only', 'Non-Compliant Farms Only', 'Payment Eligible Only']
+    # Status filter
+    status_options = ['All', 'Compliant Farms Only', 'Non-Compliant Farms Only', 'Group A Only']
     selected_status = st.sidebar.selectbox("Status Filter", status_options)
     
     # Generate Analysis
@@ -688,13 +721,13 @@ if master_df is not None and water_df is not None:
             if selected_villages:
                 results_df = results_df[results_df['Village'].isin(selected_villages)]
             
-            # Apply status filter - UPDATED
+            # Apply status filter
             if selected_status == 'Compliant Farms Only':
                 results_df = results_df[results_df['Proportion_Passing'] == 1.0]
             elif selected_status == 'Non-Compliant Farms Only':
                 results_df = results_df[results_df['Proportion_Passing'] < 1.0]
-            elif selected_status == 'Payment Eligible Only':
-                results_df = results_df[results_df['Payment_Eligible'] == True]
+            elif selected_status == 'Group A Only':
+                results_df = results_df[results_df['Group'] == 'A']
             
             if results_df.empty:
                 st.warning("No data matches the selected filters.")
@@ -707,7 +740,7 @@ if master_df is not None and water_df is not None:
                 if len(date_range) == 2:
                     st.info(f"📅 Analysis based on data from {start_date} to {end_date}")
                 
-                # Summary metrics - UPDATED
+                # Summary metrics
                 col1, col2, col3, col4 = st.columns(4)
                 
                 with col1:
@@ -715,12 +748,12 @@ if master_df is not None and water_df is not None:
                     st.metric("Total Farmers", total_farmers)
                 
                 with col2:
-                    payment_eligible_farmers = results_df[results_df['Payment_Eligible'] == True]['Farm_ID'].nunique()
-                    st.metric("Payment Eligible Farmers", payment_eligible_farmers)
+                    group_a_farmers = results_df[results_df['Group'] == 'A']['Farm_ID'].nunique()
+                    st.metric("Group A Farmers", group_a_farmers)
                 
                 with col3:
-                    total_payment = results_df[results_df['Payment_Eligible'] == True]['Amount_to_Pay_Rs'].sum()
-                    st.metric("Total Payment", f"₹{total_payment:,.0f}")
+                    total_payment = results_df[results_df['Group'] == 'A']['Amount_to_Pay_Rs'].sum()
+                    st.metric("Total Payment (Group A)", f"₹{total_payment:,.0f}")
                 
                 with col4:
                     avg_compliance = results_df[results_df['Pipes_Installed'] > 0]['Proportion_Passing'].mean()
@@ -733,38 +766,15 @@ if master_df is not None and water_df is not None:
                 display_df = results_df.copy()
                 display_df['Proportion_Passing'] = (display_df['Proportion_Passing'] * 100).round(1).astype(str) + '%'
                 display_df['Amount_to_Pay_Rs'] = display_df['Amount_to_Pay_Rs'].apply(lambda x: f"₹{x:,.0f}" if x > 0 else "N/A")
-                display_df['Payment_Eligible'] = display_df['Payment_Eligible'].apply(lambda x: "✅ Yes" if x else "❌ No")
                 
-                # Select columns for display - UPDATED
+                # Select columns for display
                 display_columns = [
                     'Week', 'Week_Period', 'Village', 'Farm_ID', 'Farmer_Name', 'Group',
-                    'Payment_Eligible', 'Total_Incentive_Acres', 'Pipes_Installed', 'Pipes_Passing', 'Non_Compliant_Pipes',
+                    'Total_Acres', 'Pipes_Installed', 'Pipes_Passing', 'Non_Compliant_Pipes',
                     'Proportion_Passing', 'Eligible_Acres', 'Amount_to_Pay_Rs', 'Comments'
                 ]
                 
                 st.dataframe(display_df[display_columns], use_container_width=True)
-                
-                # Pipe details section
-                st.subheader("🔍 Detailed Pipe Analysis")
-                for _, row in results_df.iterrows():
-                    with st.expander(f"Week {row['Week']} - {row['Farm_ID']} ({row['Farmer_Name']})"):
-                        col1, col2 = st.columns(2)
-                        with col1:
-                            st.write(f"**Village:** {row['Village']}")
-                            st.write(f"**Group:** {row['Group']}")
-                            st.write(f"**Payment Eligible:** {'✅ Yes' if row['Payment_Eligible'] else '❌ No'}")
-                            st.write(f"**Total Incentive Acres:** {row['Total_Incentive_Acres']}")
-                            st.write(f"**Pipes Installed:** {row['Pipes_Installed']}")
-                        with col2:
-                            st.write(f"**Pipes Passing:** {row['Pipes_Passing']}")
-                            st.write(f"**Proportion Passing:** {row['Proportion_Passing']:.1%}")
-                            st.write(f"**Eligible Acres:** {row['Eligible_Acres']}")
-                            st.write(f"**Payment:** ₹{row['Amount_to_Pay_Rs']:,.0f}")
-                        
-                        st.write("**Pipe Details:**")
-                        if row['Non_Compliant_Pipes']:
-                            st.error(f"**Non-Compliant Pipes:** {row['Non_Compliant_Pipes']}")
-                        st.text(row['Pipe_Details'])
                 
                 # Download option
                 csv = results_df.to_csv(index=False)
@@ -776,12 +786,12 @@ if master_df is not None and water_df is not None:
                     use_container_width=True
                 )
                 
-                # Payment summary for eligible farms - UPDATED
-                payment_eligible_data = results_df[results_df['Payment_Eligible'] == True]
-                if not payment_eligible_data.empty:
-                    st.subheader("💰 Payment Summary (Payment Eligible Farms Only)")
-                    payment_summary = payment_eligible_data.groupby(['Farm_ID', 'Farmer_Name', 'Village']).agg({
-                        'Total_Incentive_Acres': 'first',
+                # Payment summary for Group A
+                group_a_data = results_df[results_df['Group'] == 'A']
+                if not group_a_data.empty:
+                    st.subheader("💰 Payment Summary (Group A Only)")
+                    payment_summary = group_a_data.groupby(['Farm_ID', 'Farmer_Name', 'Village']).agg({
+                        'Total_Acres': 'first',
                         'Eligible_Acres': 'sum',
                         'Amount_to_Pay_Rs': 'sum'
                     }).reset_index()
@@ -823,79 +833,22 @@ with st.expander("📏 Compliance Criteria"):
     - 🔴 **Pending**: Missing second measurement
     - 🔴 **Error**: Criteria not met (gap too short, readings too high, etc.)
     
-    **UPDATED Payment Calculation:**
-    - ✅ **Payment Eligible**: Farms with 1 in "Kharif 25 - AWD Study - Group A - Treatment - complied (Y/N)"
-    - **Acres Used**: "Kharif 25 - AWD Study - acres for incentive"
-    - **Eligible Acres** = (Compliant Pipes / Total Pipes) × Incentive Acres
-    - **Payment** = Eligible Acres × ₹300 (only for payment eligible farms)
-    """)
-
-# Show grouping logic - UPDATED
-with st.expander("👥 Updated Grouping and Payment Logic"):
-    st.write("""
-    **Step 1: Keep All Farms**
-    - ALL farms are kept in analysis regardless of AWD Study participation
-    - Blank cells and spaces are treated as 0 but farms are NOT removed
-    
-    **Step 2: Hierarchical Group Assignment**
-    - If `Kharif 25 - AWD Study - Group A - Treatment (Y/N)` = 1 → **Group A**
-    - Else if `Kharif 25 - AWD Study - Group B -training only (Y/N)` = 1 → **Group B** 
-    - Else if `Kharif 25 - AWD Study - Group C - Control (Y/N)` = 1 → **Group C**
-    - If none are 1 (all blank/0) → **Group "Unassigned"**
-    
-    **Step 3: NEW - Payment Eligibility**
-    - ✅ **Payment Eligible**: `Kharif 25 - AWD Study - Group A - Treatment - complied (Y/N)` = 1
-    - ❌ **Not Payment Eligible**: All other farms (regardless of group)
-    
-    **Step 4: NEW - Acres for Calculation**
-    - **Incentive Acres**: Uses `Kharif 25 - AWD Study - acres for incentive` column
-    - **Payment**: Only calculated for payment eligible farms
-    
-    **Values considered as 1:** 1, 1.0, Y, YES, True, T, X
-    **Values considered as 0:** 0, 0.0, N, NO, False, F, blank, empty spaces
-    
-    **📝 Note:** This separates group assignment from payment eligibility, allowing more precise control over incentive payments.
-    """)
-
-# Show new date filter information
-with st.expander("📅 Date Range Filter"):
-    st.write("""
-    **Date Range Filter Features:**
-    
-    **How to use:**
-    1. Select start and end dates in the sidebar under "Date Range Filter"
-    2. Only water measurements within the selected range will be analyzed
-    3. Week filters will automatically update based on the date range
-    4. Analysis results will show which date range was used
-    
-    **Benefits:**
-    - Focus on specific time periods of interest
-    - Analyze partial study periods
-    - Compare different date ranges
-    - Exclude outlier periods or problematic data
-    
-    **Note:** The date range filter is applied before week analysis, so it works seamlessly with all existing filters.
-    """)
-
-# Show secrets configuration info
-with st.expander("🔐 Secrets Configuration"):
-    st.write("""
-    **Configuration Management:**
-    
-    ✅ **Credentials:** Loaded from `.streamlit/secrets.toml`
-    ✅ **Google Sheets URL:** Configurable in secrets.toml or override in sidebar
-    ✅ **Worksheet Name:** Configurable in secrets.toml
-    
-    **Benefits of using secrets.toml:**
-    - 🔒 **Security:** Credentials not visible in code
-    - 🔄 **Flexibility:** Easy to update without code changes
-    - 🚀 **Deployment:** Works seamlessly with Streamlit Cloud
-    - 📝 **Version Control:** Secrets excluded from git
-    
-    **Files needed:**
-    - `.streamlit/secrets.toml` (for credentials and config)
-    - `.gitignore` (should include `.streamlit/secrets.toml`)
+    **Payment Calculation (Group A only):**
+    - Eligible Acres = (Compliant Pipes / Total Pipes) × Total Acres
+    - Payment = Eligible Acres × ₹300
     """)
 
 st.markdown("---")
-st.markdown("*AWD Compliance Analysis Dashboard v12.0 - Updated Acres and Payment Logic*")
+st.markdown("*AWD Compliance Analysis Dashboard v11.0 - Auto-Sync with Robust Error Handling*")
+
+# JavaScript for auto-refresh (optional enhancement)
+if st.session_state.auto_refresh_enabled:
+    refresh_interval_ms = st.session_state.refresh_interval * 1000
+    st.markdown(f"""
+    <script>
+    // Auto-refresh page every {st.session_state.refresh_interval} seconds
+    setTimeout(function(){{
+        window.location.reload();
+    }}, {refresh_interval_ms});
+    </script>
+    """, unsafe_allow_html=True)
