@@ -1,4 +1,3 @@
-#         st.info("🔗 Please configure Google Sheets connection to load master data")
 
 import streamlit as st
 import pandas as pd
