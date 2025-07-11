@@ -400,73 +400,41 @@
 #     return max(1, week_number)
 
 # def analyze_pipe_compliance(pipe_data):
-#     """Analyze compliance for a single pipe"""
+#     """Check if a pipe meets compliance criteria (FIXED: No gap constraint)"""
 #     if len(pipe_data) < 2:
-#         if len(pipe_data) == 1:
-#             first_date = pipe_data.iloc[0]['Date'].strftime('%d/%m')
-#             first_value = int(pipe_data.iloc[0]['Water_Level_mm'])
-#             return {
-#                 'status': '🔴 Pending',
-#                 'details': f"{first_date} ({first_value}mm), —, —",
-#                 'days_gap': 0,
-#                 'compliant': False,
-#                 'reason': 'Missing 2nd visit'
-#             }
-#         else:
-#             return {
-#                 'status': '🔴 No Data',
-#                 'details': "—, —, —",
-#                 'days_gap': 0,
-#                 'compliant': False,
-#                 'reason': 'No visits'
-#             }
+#         return {'compliant': False, 'reason': 'Insufficient readings (need ≥2)'}
     
-#     # Sort by date and get first and last measurements
+#     # Sort readings by date
 #     pipe_data = pipe_data.sort_values('Date')
-#     first_measurement = pipe_data.iloc[0]
-#     second_measurement = pipe_data.iloc[-1]
     
-#     first_date = first_measurement['Date'].strftime('%d/%m')
-#     first_value = int(first_measurement['Water_Level_mm'])
-#     second_date = second_measurement['Date'].strftime('%d/%m')
-#     second_value = int(second_measurement['Water_Level_mm'])
+#     # Get all readings for compliance check
+#     readings = pipe_data['Water_Level_mm'].tolist()
     
-#     days_gap = (second_measurement['Date'] - first_measurement['Date']).days
+#     # Compliance checks (NO GAP CONSTRAINT)
+#     both_below_200 = all(reading <= 200 for reading in readings)
+#     one_below_100 = any(reading <= 100 for reading in readings)
     
-#     # Compliance criteria
-#     both_below_200 = first_value <= 200 and second_value <= 200
-#     one_below_100 = first_value <= 100 or second_value <= 100
-#     sufficient_gap = days_gap >= 3
+#     compliant = both_below_200 and one_below_100
     
-#     details = f"{first_date} ({first_value}mm), {second_date} ({second_value}mm), {days_gap} days"
-    
-#     if both_below_200 and one_below_100 and sufficient_gap:
+#     if compliant:
 #         return {
-#             'status': '🟢 PASS',
-#             'details': details,
-#             'days_gap': days_gap,
 #             'compliant': True,
 #             'reason': 'All criteria met'
 #         }
 #     else:
 #         failed_criteria = []
 #         if not both_below_200:
-#             failed_criteria.append('Both readings must be ≤200mm')
+#             failed_criteria.append('All readings must be ≤200mm')
 #         if not one_below_100:
 #             failed_criteria.append('At least one reading must be ≤100mm')
-#         if not sufficient_gap:
-#             failed_criteria.append('Gap must be ≥3 days')
         
 #         return {
-#             'status': '🔴 FAIL',
-#             'details': details,
-#             'days_gap': days_gap,
 #             'compliant': False,
 #             'reason': '; '.join(failed_criteria)
 #         }
 
 # def analyze_farm_compliance(master_df, water_df, farm_pipe_mapping, start_date, end_date):
-#     """Analyze compliance for each farm across the selected date range"""
+#     """Analyze compliance for each farm using ONLY pipes with ≥2 readings as denominator (FIXED)"""
 #     try:
 #         results = []
         
@@ -483,48 +451,51 @@
 #             # Get water data for this farm in the date range
 #             farm_water_data = water_df_filtered[water_df_filtered['Farm_ID'] == farm_id].copy()
             
-#             # Initialize analysis variables
-#             all_pipe_ids = ', '.join(farm_pipe_codes) if farm_pipe_codes else 'None'
-#             pipes_read = []
-#             pipes_passing = 0
+#             # Initialize counters
+#             valid_pipes = 0      # Pipes with ≥2 readings (NEW DENOMINATOR)
+#             pipes_passing = 0     # Pipes meeting compliance
 #             compliant_pipe_ids = []
 #             non_compliant_pipe_ids = []
+#             pipe_readings_details = []
             
 #             # Analyze each pipe assigned to this farm
 #             for pipe_id in farm_pipe_codes:
 #                 pipe_data = farm_water_data[farm_water_data['Pipe_ID'] == pipe_id]
                 
-#                 if pipe_data.empty:
-#                     pipes_read.append(f"{pipe_id}: No data")
-#                     non_compliant_pipe_ids.append(pipe_id)
-#                 else:
-#                     # Format pipe readings
-#                     readings_list = []
-#                     for _, reading in pipe_data.sort_values('Date').iterrows():
-#                         date_str = reading['Date'].strftime('%d/%m/%Y')
-#                         reading_val = int(reading['Water_Level_mm'])
-#                         readings_list.append(f"({date_str}, {reading_val}mm)")
-                    
-#                     pipes_read.append(f"{pipe_id}: " + ", ".join(readings_list))
-                    
-#                     # Check compliance
+#                 if len(pipe_data) >= 2:  # Only consider pipes with ≥2 readings
+#                     valid_pipes += 1  # This is our NEW denominator
 #                     compliance_result = analyze_pipe_compliance(pipe_data)
+                    
+#                     # Format readings for output
+#                     readings_str = ", ".join([
+#                         f"({row['Date'].strftime('%d/%m')}, {int(row['Water_Level_mm'])}mm)" 
+#                         for _, row in pipe_data.sort_values('Date').iterrows()
+#                     ])
+#                     pipe_readings_details.append(f"{pipe_id}: {readings_str}")
+                    
 #                     if compliance_result['compliant']:
 #                         pipes_passing += 1
 #                         compliant_pipe_ids.append(pipe_id)
 #                     else:
 #                         non_compliant_pipe_ids.append(pipe_id)
+#                 else:
+#                     # Pipe has 0 or 1 reading (not valid for compliance)
+#                     readings_count = len(pipe_data)
+#                     if readings_count == 1:
+#                         reading_str = f"({pipe_data.iloc[0]['Date'].strftime('%d/%m')}, {int(pipe_data.iloc[0]['Water_Level_mm'])}mm)"
+#                         pipe_readings_details.append(f"{pipe_id}: {reading_str} - Need 1 more reading")
+#                     else:
+#                         pipe_readings_details.append(f"{pipe_id}: No readings in period")
             
-#             # Calculate metrics
-#             total_pipes = len(farm_pipe_codes) if farm_pipe_codes else 0
-#             proportion_passing = pipes_passing / total_pipes if total_pipes > 0 else 0
-#             eligible_acres = proportion_passing * farm_data['Incentive_Acres']
-            
-#             # Payment calculation (only for A Complied group)
-#             if farm_data['Payment_Eligible']:
-#                 final_incentive_amount = eligible_acres * 300
+#             # FIXED CALCULATION: Use only valid pipes (≥2 readings) as denominator
+#             if valid_pipes > 0:
+#                 proportion_passing = pipes_passing / valid_pipes  # FIXED: was total_assigned_pipes
 #             else:
-#                 final_incentive_amount = 0
+#                 proportion_passing = 0  # No valid pipes → 0% compliance
+            
+#             # Calculate eligible acres and payment
+#             eligible_acres = proportion_passing * farm_data['Incentive_Acres']
+#             final_incentive_amount = eligible_acres * 300 if farm_data['Payment_Eligible'] else 0
             
 #             results.append({
 #                 'Village': farm_data['Village'],
@@ -532,12 +503,14 @@
 #                 'Farmer_Name': farm_data['Farmer_Name'],
 #                 'Group': farm_data['Group'],
 #                 'Total_Incentive_Acres': farm_data['Incentive_Acres'],
-#                 'All_Pipe_IDs': all_pipe_ids,
-#                 'Pipes_Read': '\n'.join(pipes_read) if pipes_read else 'No data',
+#                 'All_Pipe_IDs': ', '.join(farm_pipe_codes) if farm_pipe_codes else 'None',
+#                 'Total_Assigned_Pipes': len(farm_pipe_codes),  # NEW: Total assigned
+#                 'Valid_Pipes_Count': valid_pipes,  # NEW: Pipes with ≥2 readings
 #                 'Pipes_Passing': pipes_passing,
+#                 'Pipes_Read': '\n'.join(pipe_readings_details),
 #                 'Compliant_Pipe_IDs': ', '.join(compliant_pipe_ids) if compliant_pipe_ids else 'None',
 #                 'Non_Compliant_Pipe_IDs': ', '.join(non_compliant_pipe_ids) if non_compliant_pipe_ids else 'None',
-#                 'Farm_Proportion_Passing': proportion_passing,
+#                 'Farm_Proportion_Passing': proportion_passing,  # FIXED: Now based on valid pipes only
 #                 'Eligible_Acres': round(eligible_acres, 2),
 #                 'Final_Incentive_Amount': round(final_incentive_amount, 0)
 #             })
@@ -550,7 +523,7 @@
 #         return None
 
 # def analyze_weekly_compliance(master_df, water_df, farm_pipe_mapping, start_date, end_date):
-#     """Analyze compliance week by week within the selected date range"""
+#     """Analyze compliance week by week within the selected date range (FIXED)"""
 #     try:
 #         results = []
         
@@ -577,32 +550,49 @@
                 
 #                 # Initialize pipe analysis
 #                 pipe_details = []
-#                 pipes_installed = len(farm_pipe_codes)
-#                 pipes_with_data = 0
+#                 total_assigned_pipes = len(farm_pipe_codes)
+#                 valid_pipes = 0  # Pipes with ≥2 readings this week
 #                 pipes_passing = 0
 #                 non_compliant_pipe_ids = []
                 
 #                 for pipe_id in farm_pipe_codes:
 #                     pipe_data = farm_water_data[farm_water_data['Pipe_ID'] == pipe_id]
                     
-#                     if pipe_data.empty:
-#                         pipe_detail = f"{pipe_id}: No data this week 🔴"
+#                     if len(pipe_data) < 2:
+#                         # Not enough readings for compliance
+#                         if len(pipe_data) == 1:
+#                             reading = pipe_data.iloc[0]
+#                             pipe_detail = f"{pipe_id}: {reading['Date'].strftime('%d/%m')} ({int(reading['Water_Level_mm'])}mm) - Need 1 more 🔴"
+#                         else:
+#                             pipe_detail = f"{pipe_id}: No data this week 🔴"
 #                         pipe_details.append(pipe_detail)
 #                         non_compliant_pipe_ids.append(pipe_id)
 #                     else:
-#                         pipes_with_data += 1
+#                         # Valid pipe with ≥2 readings
+#                         valid_pipes += 1
 #                         compliance_result = analyze_pipe_compliance(pipe_data)
                         
-#                         pipe_detail = f"{pipe_id}: {compliance_result['details']} {compliance_result['status']}"
-#                         pipe_details.append(pipe_detail)
+#                         # Format readings
+#                         readings_str = ", ".join([
+#                             f"{row['Date'].strftime('%d/%m')} ({int(row['Water_Level_mm'])}mm)"
+#                             for _, row in pipe_data.sort_values('Date').iterrows()
+#                         ])
                         
 #                         if compliance_result['compliant']:
 #                             pipes_passing += 1
+#                             pipe_detail = f"{pipe_id}: {readings_str} 🟢 PASS"
 #                         else:
 #                             non_compliant_pipe_ids.append(pipe_id)
+#                             pipe_detail = f"{pipe_id}: {readings_str} 🔴 FAIL"
+                        
+#                         pipe_details.append(pipe_detail)
                 
-#                 # Calculate metrics
-#                 proportion_passing = pipes_passing / pipes_installed if pipes_installed > 0 else 0
+#                 # FIXED CALCULATION: Use valid pipes as denominator
+#                 if valid_pipes > 0:
+#                     proportion_passing = pipes_passing / valid_pipes
+#                 else:
+#                     proportion_passing = 0
+                
 #                 eligible_acres = proportion_passing * farm_data['Incentive_Acres']
                 
 #                 # Payment calculation
@@ -623,15 +613,15 @@
 #                     'Payment_Eligible': farm_data['Payment_Eligible'],
 #                     'Total_Incentive_Acres': farm_data['Incentive_Acres'],
 #                     'Assigned_Pipe_IDs': ', '.join(farm_pipe_codes),
-#                     'Pipes_With_Data': pipes_with_data,
-#                     'Pipes_Installed': pipes_installed,
+#                     'Total_Assigned_Pipes': total_assigned_pipes,
+#                     'Valid_Pipes_Count': valid_pipes,  # NEW: Pipes with ≥2 readings
 #                     'Pipes_Passing': pipes_passing,
 #                     'Non_Compliant_Pipe_IDs': ', '.join(non_compliant_pipe_ids) if non_compliant_pipe_ids else '',
-#                     'Proportion_Passing': proportion_passing,
+#                     'Proportion_Passing': proportion_passing,  # FIXED: Based on valid pipes
 #                     'Eligible_Acres': round(eligible_acres, 2),
 #                     'Final_Incentive_Amount': round(final_incentive, 0),
 #                     'Pipe_Details': '\n'.join(pipe_details),
-#                     'Comments': f"Week {week_number} analysis"
+#                     'Comments': f"Week {week_number} analysis - {valid_pipes}/{total_assigned_pipes} pipes valid"
 #                 })
             
 #             # Move to next week
@@ -646,7 +636,7 @@
 #         return None
 
 # def create_pipe_readings_table(master_df, water_df, farm_pipe_mapping, start_date, end_date):
-#     """Create detailed pipe readings table"""
+#     """Create detailed pipe readings table (FIXED)"""
 #     try:
 #         results = []
         
@@ -688,22 +678,34 @@
 #                 else:
 #                     pipe_columns[pipe_col] = 'Not assigned'
             
-#             # Determine non-compliant pipes
+#             # Determine non-compliant pipes (FIXED: Only consider pipes with ≥2 readings)
 #             non_compliant_pipes = []
 #             for pipe_id in farm_pipe_codes:
 #                 pipe_data = farm_water_data[farm_water_data['Pipe_ID'] == pipe_id]
-#                 if not pipe_data.empty:
+#                 if len(pipe_data) >= 2:  # Only evaluate pipes with enough data
 #                     compliance_result = analyze_pipe_compliance(pipe_data)
 #                     if not compliance_result['compliant']:
 #                         # Find pipe number for this pipe_id
 #                         pipe_num = farm_pipe_codes.index(pipe_id) + 1
 #                         non_compliant_pipes.append(str(pipe_num))
+#                 elif len(pipe_data) == 1:
+#                     # Pipes with insufficient data
+#                     pipe_num = farm_pipe_codes.index(pipe_id) + 1
+#                     non_compliant_pipes.append(f"{pipe_num}(need more data)")
             
-#             # Create comments
+#             # Create comments (FIXED)
 #             if non_compliant_pipes:
 #                 comments = f"Pipe {','.join(non_compliant_pipes)} did not follow compliance"
 #             elif farm_pipe_codes and not farm_water_data.empty:
-#                 comments = "All pipes compliant"
+#                 # Check if any pipes have ≥2 readings
+#                 pipes_with_enough_data = [
+#                     pipe_id for pipe_id in farm_pipe_codes 
+#                     if len(farm_water_data[farm_water_data['Pipe_ID'] == pipe_id]) >= 2
+#                 ]
+#                 if pipes_with_enough_data:
+#                     comments = "All evaluated pipes compliant"
+#                 else:
+#                     comments = "No pipes have sufficient data (≥2 readings)"
 #             else:
 #                 comments = "No pipe data"
             
@@ -731,13 +733,15 @@
 #             'Farm_Proportion_Passing': 'mean',
 #             'Final_Incentive_Amount': 'sum',
 #             'Pipes_Passing': 'sum',
-#             'All_Pipe_IDs': lambda x: len(set([pipe for pipes in x for pipe in pipes.split(', ') if pipe != 'None']))
+#             'Valid_Pipes_Count': 'sum',  # FIXED: Use valid pipes instead
+#             'Total_Assigned_Pipes': 'sum'  # NEW: Also show total assigned
 #         }).rename(columns={
 #             'Farm_ID': 'Total_Farms',
 #             'Farm_Proportion_Passing': 'Avg_Compliance_Rate',
 #             'Final_Incentive_Amount': 'Total_Village_Incentive',
 #             'Pipes_Passing': 'Total_Compliant_Pipes',
-#             'All_Pipe_IDs': 'Total_Pipes_Assigned'
+#             'Valid_Pipes_Count': 'Total_Valid_Pipes',
+#             'Total_Assigned_Pipes': 'Total_Assigned_Pipes'
 #         })
         
 #         village_summary = village_summary.round(2)
@@ -756,7 +760,8 @@
 #             return pd.DataFrame()
         
 #         payment_summary = payment_farms[['Village', 'Farm_ID', 'Farmer_Name', 'Group', 
-#                                        'Total_Incentive_Acres', 'Eligible_Acres', 
+#                                        'Total_Incentive_Acres', 'Valid_Pipes_Count',  # FIXED: Show valid pipes
+#                                        'Pipes_Passing', 'Eligible_Acres', 
 #                                        'Farm_Proportion_Passing', 'Final_Incentive_Amount']].copy()
         
 #         payment_summary = payment_summary.sort_values('Final_Incentive_Amount', ascending=False)
@@ -917,6 +922,9 @@
 #                         avg_compliance = results_df['Farm_Proportion_Passing'].mean()
 #                         st.metric("📈 Avg Compliance", f"{avg_compliance:.1%}")
                     
+#                     # FIXED: Show the logic being used
+#                     st.info("🔧 **FIXED COMPLIANCE LOGIC:** Farm compliance = (Pipes passing ÷ Pipes with ≥2 readings) × 100%. No gap constraint between readings.")
+                    
 #                     # Main results table
 #                     st.subheader("📋 Farm Compliance Analysis")
                     
@@ -925,16 +933,34 @@
 #                     display_df['Farm_Proportion_Passing'] = (display_df['Farm_Proportion_Passing'] * 100).round(1).astype(str) + '%'
 #                     display_df['Final_Incentive_Amount'] = display_df['Final_Incentive_Amount'].apply(lambda x: f"₹{x:,.0f}")
                     
-#                     st.dataframe(display_df, use_container_width=True, height=400)
+#                     # Show key columns including the new ones
+#                     key_columns = [
+#                         'Village', 'Farm_ID', 'Farmer_Name', 'Group',
+#                         'Total_Incentive_Acres', 'Total_Assigned_Pipes', 'Valid_Pipes_Count',
+#                         'Pipes_Passing', 'Farm_Proportion_Passing', 'Eligible_Acres', 'Final_Incentive_Amount'
+#                     ]
+                    
+#                     st.dataframe(display_df[key_columns], use_container_width=True, height=400)
+                    
+#                     # Show detailed readings in expandable section
+#                     with st.expander("🔍 Detailed Pipe Readings", expanded=False):
+#                         readings_columns = ['Village', 'Farm_ID', 'Farmer_Name', 'All_Pipe_IDs', 'Pipes_Read', 'Compliant_Pipe_IDs', 'Non_Compliant_Pipe_IDs']
+#                         st.dataframe(results_df[readings_columns], use_container_width=True, height=400)
                     
 #                     # Summary by group
 #                     st.subheader("📊 Summary by Group")
 #                     summary_df = results_df.groupby('Group').agg({
 #                         'Farm_ID': 'count',
+#                         'Total_Assigned_Pipes': 'sum',
+#                         'Valid_Pipes_Count': 'sum',
+#                         'Pipes_Passing': 'sum',
 #                         'Farm_Proportion_Passing': 'mean',
 #                         'Final_Incentive_Amount': 'sum'
 #                     }).rename(columns={
 #                         'Farm_ID': 'Total_Farms',
+#                         'Total_Assigned_Pipes': 'Total_Assigned_Pipes',
+#                         'Valid_Pipes_Count': 'Valid_Pipes_Total',
+#                         'Pipes_Passing': 'Pipes_Passing_Total',
 #                         'Farm_Proportion_Passing': 'Avg_Compliance_Rate',
 #                         'Final_Incentive_Amount': 'Total_Incentive_Amount'
 #                     })
@@ -962,11 +988,11 @@
 #                             weekly_display['Final_Incentive_Amount'] = weekly_display['Final_Incentive_Amount'].apply(lambda x: f"₹{x:,.0f}")
 #                             weekly_display['Payment_Eligible'] = weekly_display['Payment_Eligible'].apply(lambda x: "✅" if x else "❌")
                             
-#                             # Select columns for display
+#                             # Select columns for display (FIXED: Include new columns)
 #                             weekly_display_cols = [
 #                                 'Week', 'Week_Period', 'Village', 'Farm_ID', 'Farmer_Name', 'Group',
 #                                 'Payment_Eligible', 'Total_Incentive_Acres', 'Assigned_Pipe_IDs', 
-#                                 'Pipes_With_Data', 'Pipes_Installed', 'Pipes_Passing', 
+#                                 'Total_Assigned_Pipes', 'Valid_Pipes_Count', 'Pipes_Passing', 
 #                                 'Proportion_Passing', 'Eligible_Acres', 'Final_Incentive_Amount'
 #                             ]
                             
@@ -975,10 +1001,16 @@
 #                             # Weekly summary
 #                             weekly_summary = weekly_results.groupby('Week').agg({
 #                                 'Farm_ID': 'count',
+#                                 'Total_Assigned_Pipes': 'sum',
+#                                 'Valid_Pipes_Count': 'sum',
+#                                 'Pipes_Passing': 'sum',
 #                                 'Proportion_Passing': 'mean',
 #                                 'Final_Incentive_Amount': 'sum'
 #                             }).rename(columns={
 #                                 'Farm_ID': 'Farms_Analyzed',
+#                                 'Total_Assigned_Pipes': 'Total_Assigned',
+#                                 'Valid_Pipes_Count': 'Valid_Pipes',
+#                                 'Pipes_Passing': 'Pipes_Passing',
 #                                 'Proportion_Passing': 'Avg_Compliance',
 #                                 'Final_Incentive_Amount': 'Week_Total_Incentive'
 #                             })
@@ -1148,6 +1180,7 @@
                             
 #                             with col2:
 #                                 st.write(f"**Compliance Rate:** {row['Farm_Proportion_Passing']:.1%}")
+#                                 st.write(f"**Valid Pipes:** {row['Valid_Pipes_Count']}/{row['Total_Assigned_Pipes']}")  # FIXED
 #                                 st.write(f"**Pipes Passing:** {row['Pipes_Passing']}")
 #                                 st.write(f"**Eligible Acres:** {row['Eligible_Acres']}")
                             
@@ -1156,7 +1189,7 @@
 #                                 if row['Non_Compliant_Pipe_IDs'] != 'None':
 #                                     st.error(f"**Failed Pipes:** {row['Non_Compliant_Pipe_IDs']}")
 #                                 else:
-#                                     st.success("**All pipes compliant!**")
+#                                     st.success("**All valid pipes compliant!**")
                             
 #                             # Show pipe reading details
 #                             st.write("**📊 Pipe Reading Details:**")
@@ -1175,6 +1208,7 @@
 #                                 with col1:
 #                                     st.write(f"Compliance Rate: {row['Farm_Proportion_Passing']:.1%}")
 #                                     st.write(f"Group: {row['Group']}")
+#                                     st.write(f"Valid Pipes: {row['Valid_Pipes_Count']}/{row['Total_Assigned_Pipes']}")  # FIXED
 #                                 with col2:
 #                                     st.write(f"Failed Pipes: {row['Non_Compliant_Pipe_IDs']}")
 #                                     st.write(f"Potential Loss: ₹{(row['Total_Incentive_Acres'] * 300) - row['Final_Incentive_Amount']:,.0f}")
@@ -1208,6 +1242,7 @@
 #                                 st.info(f"""
 #                                 **Performance:**
 #                                 - **Compliance Rate:** {farm_detail['Farm_Proportion_Passing']:.1%}
+#                                 - **Valid Pipes:** {farm_detail['Valid_Pipes_Count']}/{farm_detail['Total_Assigned_Pipes']}
 #                                 - **Pipes Passing:** {farm_detail['Pipes_Passing']}
 #                                 - **Eligible Acres:** {farm_detail['Eligible_Acres']}
 #                                 - **Final Incentive:** ₹{farm_detail['Final_Incentive_Amount']:,.0f}
@@ -1219,7 +1254,7 @@
 #                             if farm_detail['Non_Compliant_Pipe_IDs'] != 'None':
 #                                 st.error(f"⚠️ Non-compliant pipes: {farm_detail['Non_Compliant_Pipe_IDs']}")
 #                             else:
-#                                 st.success("✅ All assigned pipes are compliant!")
+#                                 st.success("✅ All valid pipes are compliant!")
                     
 #                     # Data Quality Analysis
 #                     with st.expander("📈 Data Quality & Coverage Analysis", expanded=False):
@@ -1231,17 +1266,18 @@
 #                             (water_df['Date'].dt.date <= end_date)
 #                         ].copy()
                         
-#                         # Calculate coverage metrics
+#                         # Calculate coverage metrics (FIXED)
 #                         total_farms = len(master_df)
-#                         farms_with_data = len(results_df[results_df['Pipes_Read'] != 'No data'])
-#                         total_assigned_pipes = sum(len(pipes) for pipes in farm_pipe_mapping.values())
+#                         farms_with_valid_pipes = len(results_df[results_df['Valid_Pipes_Count'] > 0])
+#                         total_assigned_pipes = results_df['Total_Assigned_Pipes'].sum()
+#                         total_valid_pipes = results_df['Valid_Pipes_Count'].sum()
 #                         pipes_with_data = water_df_filtered['Pipe_ID'].nunique()
                         
 #                         col1, col2, col3, col4 = st.columns(4)
 #                         with col1:
-#                             st.metric("🏢 Farm Coverage", f"{farms_with_data}/{total_farms}", f"{farms_with_data/total_farms:.1%}")
+#                             st.metric("🏢 Farms w/ Valid Pipes", f"{farms_with_valid_pipes}/{total_farms}", f"{farms_with_valid_pipes/total_farms:.1%}")
 #                         with col2:
-#                             st.metric("📏 Pipe Coverage", f"{pipes_with_data}/{total_assigned_pipes}", f"{pipes_with_data/total_assigned_pipes:.1%}")
+#                             st.metric("📏 Valid Pipe Rate", f"{total_valid_pipes}/{total_assigned_pipes}", f"{total_valid_pipes/total_assigned_pipes:.1%}")
 #                         with col3:
 #                             total_readings = len(water_df_filtered)
 #                             st.metric("📊 Total Readings", total_readings)
@@ -1250,27 +1286,27 @@
 #                             avg_readings_per_day = total_readings / days_covered if days_covered > 0 else 0
 #                             st.metric("📅 Avg Daily Readings", f"{avg_readings_per_day:.1f}")
                         
-#                         # Missing data analysis
+#                         # Missing data analysis (FIXED)
 #                         st.subheader("⚠️ Missing Data Analysis")
                         
-#                         # Farms with no data
-#                         farms_no_data = results_df[results_df['Pipes_Read'] == 'No data']
-#                         if not farms_no_data.empty:
-#                             st.error(f"**{len(farms_no_data)} farms have NO pipe readings:**")
-#                             st.dataframe(farms_no_data[['Village', 'Farm_ID', 'Farmer_Name', 'Group', 'All_Pipe_IDs']], use_container_width=True)
+#                         # Farms with no valid pipes
+#                         farms_no_valid_pipes = results_df[results_df['Valid_Pipes_Count'] == 0]
+#                         if not farms_no_valid_pipes.empty:
+#                             st.error(f"**{len(farms_no_valid_pipes)} farms have NO valid pipes (≥2 readings):**")
+#                             st.dataframe(farms_no_valid_pipes[['Village', 'Farm_ID', 'Farmer_Name', 'Group', 'All_Pipe_IDs', 'Total_Assigned_Pipes']], use_container_width=True)
 #                         else:
-#                             st.success("✅ All farms have at least some pipe readings!")
+#                             st.success("✅ All farms have at least one valid pipe!")
                         
 #                         # Farms with partial data
 #                         farms_partial_data = results_df[
-#                             (results_df['Pipes_Read'] != 'No data') & 
+#                             (results_df['Valid_Pipes_Count'] > 0) & 
 #                             (results_df['Farm_Proportion_Passing'] < 1.0) & 
 #                             (results_df['Non_Compliant_Pipe_IDs'] != 'None')
 #                         ]
                         
 #                         if not farms_partial_data.empty:
 #                             st.warning(f"**{len(farms_partial_data)} farms have incomplete/non-compliant data:**")
-#                             partial_display = farms_partial_data[['Village', 'Farm_ID', 'Farmer_Name', 'Group', 'Farm_Proportion_Passing', 'Non_Compliant_Pipe_IDs']].copy()
+#                             partial_display = farms_partial_data[['Village', 'Farm_ID', 'Farmer_Name', 'Group', 'Valid_Pipes_Count', 'Total_Assigned_Pipes', 'Farm_Proportion_Passing', 'Non_Compliant_Pipe_IDs']].copy()
 #                             partial_display['Farm_Proportion_Passing'] = (partial_display['Farm_Proportion_Passing'] * 100).round(1).astype(str) + '%'
 #                             st.dataframe(partial_display, use_container_width=True)
                         
@@ -1290,16 +1326,19 @@
 #                             st.warning("⚠️ Days with unusually low readings:")
 #                             st.dataframe(low_reading_days, use_container_width=True)
                         
-#                         # Group performance comparison
+#                         # Group performance comparison (FIXED)
 #                         st.subheader("👥 Group Performance Comparison")
 #                         group_performance = results_df.groupby('Group').agg({
 #                             'Farm_ID': 'count',
+#                             'Total_Assigned_Pipes': 'sum',
+#                             'Valid_Pipes_Count': 'sum',
+#                             'Pipes_Passing': 'sum',
 #                             'Farm_Proportion_Passing': ['mean', 'std'],
 #                             'Final_Incentive_Amount': ['sum', 'mean']
 #                         }).round(2)
                         
 #                         # Flatten column names
-#                         group_performance.columns = ['Total_Farms', 'Avg_Compliance', 'Compliance_StdDev', 'Total_Incentive', 'Avg_Incentive_per_Farm']
+#                         group_performance.columns = ['Total_Farms', 'Total_Assigned', 'Total_Valid', 'Total_Passing', 'Avg_Compliance', 'Compliance_StdDev', 'Total_Incentive', 'Avg_Incentive_per_Farm']
 #                         group_performance['Avg_Compliance'] = (group_performance['Avg_Compliance'] * 100).round(1).astype(str) + '%'
 #                         group_performance['Compliance_StdDev'] = (group_performance['Compliance_StdDev'] * 100).round(1).astype(str) + '%'
 #                         group_performance['Total_Incentive'] = group_performance['Total_Incentive'].apply(lambda x: f"₹{x:,.0f}")
@@ -1315,20 +1354,29 @@
 #     if water_df is None:
 #         st.info("📁 Please upload water level data to begin analysis")
 
-# # Information sections
-# with st.expander("📏 Compliance Criteria", expanded=False):
+# # Information sections (UPDATED)
+# with st.expander("📏 Compliance Criteria (FIXED)", expanded=False):
 #     st.markdown("""
-#     ### ✅ Pipe Compliance Requirements:
-#     1. **Two measurements** within the analysis period
-#     2. **Both readings ≤ 200mm**
+#     ### ✅ **FIXED** Pipe Compliance Requirements:
+#     1. **≥2 measurements** within the analysis period 
+#     2. **All readings ≤ 200mm**
 #     3. **At least one reading ≤ 100mm** 
-#     4. **Minimum 3 days gap** between measurements
+#     4. **~~No gap constraint~~** ❌ (REMOVED)
     
-#     ### 💰 Payment Logic:
+#     ### 💰 **FIXED** Payment Logic:
 #     - **Payment Eligible**: Only "A Complied" group
-#     - **Farm Compliance**: (Compliant Pipes ÷ Total Assigned Pipes)
+#     - **Farm Compliance**: **(Compliant Pipes ÷ Valid Pipes)** ← FIXED
+#     - **Valid Pipes**: Only pipes with ≥2 readings in period ← FIXED  
 #     - **Eligible Acres**: Farm Compliance × Total Incentive Acres
 #     - **Final Incentive**: Eligible Acres × ₹300 (only for A Complied group)
+    
+#     ### 🔧 **Key Fix**:
+#     **Before**: Compliance = Compliant Pipes ÷ **All Assigned Pipes**  
+#     **After**: Compliance = Compliant Pipes ÷ **Valid Pipes (≥2 readings)**
+    
+#     **Example**: Farm with 5 assigned pipes, 2 pipes have ≥2 readings, 1 compliant  
+#     - **Old Logic**: 1/5 = 20% ❌  
+#     - **New Logic**: 1/2 = 50% ✅
 #     """)
 
 # with st.expander("👥 Group Assignment Logic", expanded=False):
@@ -1349,42 +1397,33 @@
 #     - **C Non Complied** → No Payment ❌
 #     """)
 
-# with st.expander("📊 Analysis Features & Tables", expanded=False):
+# with st.expander("📊 Analysis Features & Tables (UPDATED)", expanded=False):
 #     st.markdown("""
-#     ### 🎯 **Main Farm Analysis Table** (Your Custom Format):
+#     ### 🎯 **Main Farm Analysis Table** (FIXED):
 #     - **Village, Farm_ID, Farmer_Name, Group**: Basic farm information
 #     - **Total_Incentive_Acres**: Acres eligible for incentive  
-#     - **All_Pipe_IDs**: All pipes assigned to farm from master data
-#     - **Pipes_Read**: Detailed readings (Pipe_ID: date, water_level)
-#     - **Pipes_Passing, Compliant_Pipe_IDs, Non_Compliant_Pipe_IDs**: Compliance status
-#     - **Farm_Proportion_Passing**: Overall farm compliance percentage
+#     - **Total_Assigned_Pipes**: All pipes assigned to farm ← NEW
+#     - **Valid_Pipes_Count**: Pipes with ≥2 readings ← NEW
+#     - **Pipes_Passing**: Pipes meeting compliance criteria
+#     - **Farm_Proportion_Passing**: **FIXED** = Pipes_Passing ÷ Valid_Pipes_Count
 #     - **Eligible_Acres, Final_Incentive_Amount**: Payment calculations
     
-#     ### 📅 **Weekly Breakdown Analysis**:
-#     - Week-by-week compliance for each farm within your date range
-#     - Shows progression and identifies problem weeks
-#     - Helps track improvement over time
+#     ### 📅 **Weekly Breakdown Analysis** (FIXED):
+#     - Week-by-week compliance using fixed logic
+#     - Shows Valid_Pipes_Count vs Total_Assigned_Pipes
+#     - Comments include valid pipe ratios
     
-#     ### 🔍 **Detailed Pipe Readings Table**:
-#     - Pipe-by-pipe view with all readings formatted clearly
-#     - Shows up to 5 pipes per farm with compliance status
-#     - Ideal for field verification and troubleshooting
+#     ### 🔍 **Detailed Pipe Readings Table** (FIXED):
+#     - Comments now distinguish between insufficient data vs non-compliance
+#     - Only evaluates pipes with ≥2 readings for compliance
     
-#     ### 🏘️ **Village Summary**:
-#     - Village-wise performance metrics and totals
-#     - Helps identify high/low performing areas
-#     - Includes visual charts for quick comparison
+#     ### 🏘️ **Village Summary** (UPDATED):
+#     - Now includes Total_Valid_Pipes and Total_Assigned_Pipes
+#     - Compliance rates based on fixed logic
     
-#     ### 💰 **Payment Summary**:
-#     - Focused view of only farms receiving payments
-#     - Sorted by payment amount for priority processing
-#     - Includes payment statistics and totals
-    
-#     ### 📈 **Data Quality Analysis**:
-#     - Coverage statistics (farm/pipe data availability)
-#     - Missing data identification and alerts
-#     - Daily reading distribution and anomaly detection
-#     - Group performance comparison with statistics
+#     ### 💰 **Payment Summary** (UPDATED):
+#     - Shows Valid_Pipes_Count for transparency
+#     - All calculations use fixed compliance logic
 #     """)
 
 # with st.expander("🎯 Dynamic Date Range System", expanded=False):
@@ -1408,43 +1447,9 @@
 #     - **Flexible Reporting**: Any reporting period needed
 #     """)
 
-# with st.expander("📋 Enhanced Download Options", expanded=False):
-#     st.markdown("""
-#     ### 📥 **Multiple Export Formats**:
-#     - **Farm Analysis**: Main comprehensive farm table
-#     - **Payment Records**: Only farms receiving payments
-#     - **Group Summary**: Aggregated group performance
-#     - **Weekly Analysis**: Week-by-week breakdown (if using weekly view)
-#     - **Pipe Readings**: Detailed pipe-by-pipe readings
-#     - **Payment Summary**: Focused payment processing list
-#     - **Village Summary**: Village-wise performance data
-    
-#     ### 💼 **Business Use**:
-#     - **Field Teams**: Pipe readings table for verification
-#     - **Finance**: Payment records for processing
-#     - **Management**: Group/village summaries for oversight
-#     - **Analysis**: Full farm data for deeper insights
-#     """)
-
-# with st.expander("🔍 Interactive Features", expanded=False):
-#     st.markdown("""
-#     ### 🎮 **Interactive Elements**:
-#     - **Farm Search**: Look up any specific farm instantly
-#     - **Top Performers**: Automatically highlights best farms
-#     - **Problem Identification**: Flags farms needing attention
-#     - **Expandable Sections**: Organize information clearly
-#     - **Real-time Filtering**: Village/group filters apply everywhere
-    
-#     ### 📊 **Visual Analytics**:
-#     - **Compliance Charts**: Village performance visualization
-#     - **Payment Distribution**: Incentive amount comparisons  
-#     - **Daily Trends**: Reading frequency over time
-#     - **Coverage Metrics**: Data quality monitoring
-#     - **Performance Alerts**: Automatic problem detection
-#     """)
-
 # st.markdown("---")
-# st.markdown("*AWD Compliance Analysis Dashboard v17.0 - Comprehensive Multi-Table Analysis with Dynamic Date Ranges*")
+# st.markdown("*AWD Compliance Analysis Dashboard v18.0 - **FIXED COMPLIANCE LOGIC** - Valid Pipes Only & No Gap Constraint*")
+
 
 
 import streamlit as st
@@ -2374,7 +2379,7 @@ if master_df is not None and water_df is not None and farm_pipe_mapping is not N
                     # FIXED: Show the logic being used
                     st.info("🔧 **FIXED COMPLIANCE LOGIC:** Farm compliance = (Pipes passing ÷ Pipes with ≥2 readings) × 100%. No gap constraint between readings.")
                     
-                    # Main results table
+                    # Main results table - FIXED TO INCLUDE ALL REQUIRED COLUMNS
                     st.subheader("📋 Farm Compliance Analysis")
                     
                     # Format display dataframe
@@ -2382,19 +2387,15 @@ if master_df is not None and water_df is not None and farm_pipe_mapping is not N
                     display_df['Farm_Proportion_Passing'] = (display_df['Farm_Proportion_Passing'] * 100).round(1).astype(str) + '%'
                     display_df['Final_Incentive_Amount'] = display_df['Final_Incentive_Amount'].apply(lambda x: f"₹{x:,.0f}")
                     
-                    # Show key columns including the new ones
-                    key_columns = [
-                        'Village', 'Farm_ID', 'Farmer_Name', 'Group',
-                        'Total_Incentive_Acres', 'Total_Assigned_Pipes', 'Valid_Pipes_Count',
-                        'Pipes_Passing', 'Farm_Proportion_Passing', 'Eligible_Acres', 'Final_Incentive_Amount'
+                    # ALL REQUIRED COLUMNS - FIXED
+                    required_columns = [
+                        'Village', 'Farm_ID', 'Farmer_Name', 'Group', 'Total_Incentive_Acres', 
+                        'All_Pipe_IDs', 'Pipes_Read', 'Pipes_Passing', 'Compliant_Pipe_IDs', 
+                        'Non_Compliant_Pipe_IDs', 'Farm_Proportion_Passing', 'Eligible_Acres', 
+                        'Final_Incentive_Amount'
                     ]
                     
-                    st.dataframe(display_df[key_columns], use_container_width=True, height=400)
-                    
-                    # Show detailed readings in expandable section
-                    with st.expander("🔍 Detailed Pipe Readings", expanded=False):
-                        readings_columns = ['Village', 'Farm_ID', 'Farmer_Name', 'All_Pipe_IDs', 'Pipes_Read', 'Compliant_Pipe_IDs', 'Non_Compliant_Pipe_IDs']
-                        st.dataframe(results_df[readings_columns], use_container_width=True, height=400)
+                    st.dataframe(display_df[required_columns], use_container_width=True, height=400)
                     
                     # Summary by group
                     st.subheader("📊 Summary by Group")
@@ -2851,9 +2852,11 @@ with st.expander("📊 Analysis Features & Tables (UPDATED)", expanded=False):
     ### 🎯 **Main Farm Analysis Table** (FIXED):
     - **Village, Farm_ID, Farmer_Name, Group**: Basic farm information
     - **Total_Incentive_Acres**: Acres eligible for incentive  
-    - **Total_Assigned_Pipes**: All pipes assigned to farm ← NEW
-    - **Valid_Pipes_Count**: Pipes with ≥2 readings ← NEW
+    - **All_Pipe_IDs**: All pipes assigned to farm ← ADDED
+    - **Pipes_Read**: Detailed readings for each pipe ← ADDED
     - **Pipes_Passing**: Pipes meeting compliance criteria
+    - **Compliant_Pipe_IDs**: IDs of compliant pipes ← ADDED
+    - **Non_Compliant_Pipe_IDs**: IDs of non-compliant pipes ← ADDED
     - **Farm_Proportion_Passing**: **FIXED** = Pipes_Passing ÷ Valid_Pipes_Count
     - **Eligible_Acres, Final_Incentive_Amount**: Payment calculations
     
