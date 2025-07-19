@@ -1,6 +1,9 @@
 # Streamlit secrets (IMPORTANT: Never commit credentials!)
 .streamlit/secrets.toml
 
+# Virtual Environment - AWDC
+AWDC/
+
 # Python
 __pycache__/
 *.py[cod]
