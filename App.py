@@ -965,7 +965,28 @@
 #                         'Final_Incentive_Amount': 'Total_Incentive_Amount'
 #                     })
                     
+#                     # Add compliant farms count (farms with 100% compliance)
+#                     compliant_farms_df = results_df[results_df['Farm_Proportion_Passing'] == 1.0]
+#                     compliant_farms_summary = compliant_farms_df.groupby('Group').agg({
+#                         'Farm_ID': 'count'
+#                     }).rename(columns={
+#                         'Farm_ID': 'Compliant_Farms'
+#                     })
+                    
+#                     # Merge compliant farms data
+#                     summary_df = summary_df.merge(compliant_farms_summary, left_index=True, right_index=True, how='left')
+#                     summary_df['Compliant_Farms'] = summary_df['Compliant_Farms'].fillna(0).astype(int)
+                    
+#                     # Calculate percentage of compliant farms
+#                     summary_df['Percent_Compliant_Farms'] = (summary_df['Compliant_Farms'] / summary_df['Total_Farms'] * 100).fillna(0)
+                    
+#                     # Reorder columns to include new compliant farms metrics
+#                     summary_df = summary_df[['Total_Farms', 'Compliant_Farms', 'Percent_Compliant_Farms', 
+#                                            'Total_Assigned_Pipes', 'Valid_Pipes_Total', 'Pipes_Passing_Total', 
+#                                            'Avg_Compliance_Rate', 'Total_Incentive_Amount']]
+                    
 #                     summary_df['Avg_Compliance_Rate'] = (summary_df['Avg_Compliance_Rate'] * 100).round(1).astype(str) + '%'
+#                     summary_df['Percent_Compliant_Farms'] = summary_df['Percent_Compliant_Farms'].round(1).astype(str) + '%'
 #                     summary_df['Total_Incentive_Amount'] = summary_df['Total_Incentive_Amount'].apply(lambda x: f"₹{x:,.0f}")
                     
 #                     st.dataframe(summary_df, use_container_width=True)
@@ -2471,16 +2492,31 @@ if master_df is not None and water_df is not None and farm_pipe_mapping is not N
                         'Farm_Proportion_Passing': 'Avg_Compliance_Rate_Valid_Farms'
                     })
                     
+                    # Add compliant farms count (farms with 100% compliance)
+                    compliant_farms_df = valid_farms_df[valid_farms_df['Farm_Proportion_Passing'] > 0]
+                    compliant_farms_summary = compliant_farms_df.groupby('Group').agg({
+                        'Farm_ID': 'count'
+                    }).rename(columns={
+                        'Farm_ID': 'Compliant_Farms'
+                    })
+                    
                     # Merge the summaries
                     summary_df = summary_df.merge(valid_farms_summary, left_index=True, right_index=True, how='left')
+                    summary_df = summary_df.merge(compliant_farms_summary, left_index=True, right_index=True, how='left')
                     summary_df['Valid_Farms'] = summary_df['Valid_Farms'].fillna(0).astype(int)
+                    summary_df['Compliant_Farms'] = summary_df['Compliant_Farms'].fillna(0).astype(int)
                     summary_df['Avg_Compliance_Rate_Valid_Farms'] = summary_df['Avg_Compliance_Rate_Valid_Farms'].fillna(0)
                     
+                    # Calculate percentage of compliant farms
+                    summary_df['Percent_Compliant_Farms'] = (summary_df['Compliant_Farms'] / summary_df['Valid_Farms'] * 100).fillna(0)
+                    
                     # Reorder columns
-                    summary_df = summary_df[['Total_Farms', 'Valid_Farms', 'Total_Assigned_Pipes', 'Valid_Pipes_Total', 
-                                           'Pipes_Passing_Total', 'Avg_Compliance_Rate_Valid_Farms', 'Total_Incentive_Amount']]
+                    summary_df = summary_df[['Total_Farms', 'Valid_Farms', 'Compliant_Farms', 'Percent_Compliant_Farms', 
+                                           'Total_Assigned_Pipes', 'Valid_Pipes_Total', 'Pipes_Passing_Total', 
+                                           'Avg_Compliance_Rate_Valid_Farms', 'Total_Incentive_Amount']]
                     
                     summary_df['Avg_Compliance_Rate_Valid_Farms'] = (summary_df['Avg_Compliance_Rate_Valid_Farms'] * 100).round(1).astype(str) + '%'
+                    summary_df['Percent_Compliant_Farms'] = summary_df['Percent_Compliant_Farms'].round(1).astype(str) + '%'
                     summary_df['Total_Incentive_Amount'] = summary_df['Total_Incentive_Amount'].apply(lambda x: f"₹{x:,.0f}")
                     
                     st.dataframe(summary_df, use_container_width=True)
