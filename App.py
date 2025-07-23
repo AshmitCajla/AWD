@@ -2216,6 +2216,79 @@ def create_pipe_readings_table(master_df, water_df, farm_pipe_mapping, start_dat
         st.error(f"❌ Error creating pipe readings table: {str(e)}")
         return None
 
+def create_pipe_summary_table(master_df, water_df, farm_pipe_mapping, start_date, end_date):
+    """Create pipe summary table with Farm ID, Pipe ID, Reading 1-5, Farm Valid, Farmer Name, Group, Compliance"""
+    try:
+        results = []
+        
+        # Filter water data to date range
+        water_df_filtered = water_df[
+            (water_df['Date'].dt.date >= start_date) & 
+            (water_df['Date'].dt.date <= end_date)
+        ].copy()
+        
+        for _, farm_data in master_df.iterrows():
+            farm_id = farm_data['Farm_ID']
+            farm_pipe_codes = farm_data['Pipe_Codes']
+            farmer_name = farm_data['Farmer_Name']
+            group = farm_data['Group']
+            
+            # Get water data for this farm in the date range
+            farm_water_data = water_df_filtered[water_df_filtered['Farm_ID'] == farm_id].copy()
+            
+            # Determine if farm is valid (has at least 1 pipe with ≥2 readings)
+            pipes_with_enough_data = [
+                pipe_id for pipe_id in farm_pipe_codes 
+                if len(farm_water_data[farm_water_data['Pipe_ID'] == pipe_id]) >= 2
+            ]
+            is_valid_farm = len(pipes_with_enough_data) > 0
+            farm_valid_status = '✅' if is_valid_farm else '❌'
+            
+            # Process each pipe assigned to this farm
+            for pipe_id in farm_pipe_codes:
+                pipe_data = farm_water_data[farm_water_data['Pipe_ID'] == pipe_id].copy()
+                
+                # Initialize reading columns
+                readings = [''] * 5  # Reading 1 through Reading 5
+                
+                if not pipe_data.empty:
+                    # Sort by date and get up to 5 readings
+                    pipe_data_sorted = pipe_data.sort_values('Date')
+                    for i, (_, reading) in enumerate(pipe_data_sorted.iterrows()):
+                        if i < 5:  # Only take first 5 readings
+                            readings[i] = f"{int(reading['Water_Level_mm'])}mm"
+                
+                # Determine compliance for this pipe
+                compliance_status = "Insufficient Data"
+                if len(pipe_data) >= 2:
+                    compliance_result = analyze_pipe_compliance(pipe_data)
+                    compliance_status = "Compliant" if compliance_result['compliant'] else "Non-Compliant"
+                elif len(pipe_data) == 1:
+                    compliance_status = "Only 1 Reading"
+                elif len(pipe_data) == 0:
+                    compliance_status = "No Data"
+                
+                # Add row for this pipe
+                results.append({
+                    'Farm_ID': farm_id,
+                    'Pipe_ID': pipe_id,
+                    'Reading_1': readings[0],
+                    'Reading_2': readings[1],
+                    'Reading_3': readings[2],
+                    'Reading_4': readings[3],
+                    'Reading_5': readings[4],
+                    'Farm_Valid': farm_valid_status,
+                    'Farmer_Name': farmer_name,
+                    'Group': group,
+                    'Compliance': compliance_status
+                })
+        
+        return pd.DataFrame(results)
+        
+    except Exception as e:
+        st.error(f"❌ Error creating pipe summary table: {str(e)}")
+        return None
+
 def create_village_summary(results_df):
     """Create village-wise summary"""
     try:
@@ -2607,6 +2680,58 @@ if master_df is not None and water_df is not None and farm_pipe_mapping is not N
                         else:
                             st.warning("No pipe readings data available for the selected filters")
                     
+                    # New Pipe Summary Table
+                    with st.expander("📊 Pipe Summary Table", expanded=False):
+                        st.subheader("🔍 Individual Pipe Analysis")
+                        pipe_summary_df = create_pipe_summary_table(master_df, water_df, farm_pipe_mapping, start_date, end_date)
+                        
+                        if pipe_summary_df is not None and not pipe_summary_df.empty:
+                            # Apply same filters
+                            if selected_groups:
+                                pipe_summary_df = pipe_summary_df[pipe_summary_df['Group'].isin(selected_groups)]
+                            if selected_villages:
+                                # Filter by villages (need to get village info from master_df)
+                                farm_village_map = master_df.set_index('Farm_ID')['Village'].to_dict()
+                                pipe_summary_df['Village'] = pipe_summary_df['Farm_ID'].map(farm_village_map)
+                                pipe_summary_df = pipe_summary_df[pipe_summary_df['Village'].isin(selected_villages)]
+                                pipe_summary_df = pipe_summary_df.drop('Village', axis=1)  # Remove temporary column
+                            
+                            st.dataframe(pipe_summary_df, use_container_width=True, height=400)
+                            
+                            # Summary statistics for the pipe summary table
+                            col1, col2, col3, col4 = st.columns(4)
+                            
+                            with col1:
+                                total_pipes = len(pipe_summary_df)
+                                st.metric("📏 Total Pipes", total_pipes)
+                            
+                            with col2:
+                                compliant_pipes = len(pipe_summary_df[pipe_summary_df['Compliance'] == 'Compliant'])
+                                st.metric("✅ Compliant Pipes", f"{compliant_pipes}/{total_pipes}")
+                            
+                            with col3:
+                                insufficient_data_pipes = len(pipe_summary_df[pipe_summary_df['Compliance'].isin(['Insufficient Data', 'Only 1 Reading', 'No Data'])])
+                                st.metric("⚠️ Insufficient Data", insufficient_data_pipes)
+                            
+                            with col4:
+                                if total_pipes > 0:
+                                    compliance_rate = (compliant_pipes / total_pipes * 100)
+                                    st.metric("📈 Overall Pipe Compliance", f"{compliance_rate:.1f}%")
+                                else:
+                                    st.metric("📈 Overall Pipe Compliance", "N/A")
+                            
+                            # Download pipe summary table
+                            pipe_summary_csv = pipe_summary_df.to_csv(index=False)
+                            st.download_button(
+                                "📊 Download Pipe Summary Table",
+                                pipe_summary_csv,
+                                f"awd_pipe_summary_{start_date}_to_{end_date}.csv",
+                                "text/csv",
+                                use_container_width=True
+                            )
+                        else:
+                            st.warning("No pipe summary data available for the selected filters")
+                    
                     # Village Summary
                     with st.expander("🏘️ Village-wise Performance", expanded=False):
                         st.subheader("📊 Village Summary")
@@ -2976,6 +3101,13 @@ with st.expander("📊 Analysis Features & Tables (UPDATED)", expanded=False):
     ### 🔍 **Detailed Pipe Readings Table** (FIXED):
     - Comments now distinguish between insufficient data vs non-compliance
     - Only evaluates pipes with ≥2 readings for compliance
+    
+    ### 📊 **Pipe Summary Table** (NEW):
+    - **Farm_ID, Pipe_ID**: Individual pipe identification
+    - **Reading_1 to Reading_5**: First 5 water level readings chronologically  
+    - **Farm_Valid**: Whether farm has ≥1 pipe with 2+ readings
+    - **Farmer_Name, Group**: Farm details
+    - **Compliance**: Pipe-level compliance status (Compliant/Non-Compliant/Insufficient Data)
     
     ### 🏘️ **Village Summary** (UPDATED):
     - Now includes Total_Valid_Pipes and Total_Assigned_Pipes
