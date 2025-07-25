@@ -49,11 +49,9 @@ def connect_to_google_sheets(credentials_dict, sheet_url, worksheet_name=None):
         data = worksheet.get_all_records()
         df = pd.DataFrame(data)
         
-        st.success(f"✅ Connected to Google Sheets: {len(df)} rows loaded")
         return df
         
     except Exception as e:
-        st.error(f"❌ Error connecting to Google Sheets: {str(e)}")
         return None
 
 def get_credentials_from_secrets():
@@ -79,11 +77,9 @@ def get_credentials_from_secrets():
         return credentials_dict
         
     except KeyError as e:
-        st.error(f"❌ Missing secret: {str(e)}")
         st.error("Please check your .streamlit/secrets.toml file configuration")
         return None
     except Exception as e:
-        st.error(f"❌ Error loading secrets: {str(e)}")
         return None
 
 def get_app_config_from_secrets():
@@ -101,7 +97,6 @@ def get_app_config_from_secrets():
             "worksheet_name": "Farm details"
         }
     except Exception as e:
-        st.error(f"❌ Error loading app config: {str(e)}")
         return {
             "sheet_url": "",
             "worksheet_name": "Farm details"
@@ -118,10 +113,8 @@ def process_uploaded_file(uploaded_file, file_type):
         else:
             df = pd.read_csv(uploaded_file)
         
-        st.success(f"✅ File loaded successfully: {len(df)} rows")
         return df
     except Exception as e:
-        st.error(f"❌ Error loading file: {str(e)}")
         return None
 
 def find_column(df, keywords, default_name=None):
@@ -204,7 +197,6 @@ def clean_master_data(df):
                 missing_cols.append(col)
         
         if missing_cols:
-            st.error(f"❌ Missing required columns: {missing_cols}")
             st.info("Available columns: " + ", ".join(df_clean.columns.tolist()))
             return None, None
         
@@ -295,10 +287,6 @@ def clean_master_data(df):
         group_counts = df_clean['Group'].value_counts()
         payment_eligible_count = df_clean['Payment_Eligible'].sum()
         
-        st.success(f"✅ Final Group Distribution: {group_counts.to_dict()}")
-        st.success(f"✅ Payment Eligible Farms (A Complied): {payment_eligible_count} farms")
-        st.success(f"✅ Total Unique Pipe Codes Found: {len(all_pipe_codes)} pipes")
-        st.success(f"✅ Farms with Pipes: {len(df_clean[df_clean['Pipe_Count'] > 0])} farms")
         
         # Prepare final dataframe
         final_df = df_clean[['Farm_ID', 'Farmer_Name', 'Village', 'Incentive_Acres', 'Group', 
@@ -308,12 +296,10 @@ def clean_master_data(df):
         final_df = final_df.dropna(subset=['Farm_ID'])
         final_df = final_df[final_df['Farm_ID'] != 'Unknown_Farm']
         
-        st.success(f"✅ Final clean data: {len(final_df)} farms ready for analysis")
         
         return final_df, farm_pipe_mapping
         
     except Exception as e:
-        st.error(f"❌ Error cleaning master data: {str(e)}")
         st.exception(e)
         return None, None
 
@@ -328,7 +314,6 @@ def clean_water_data(df, farm_pipe_mapping):
         water_col = find_column(df_clean, ['water level', 'water_level', 'depth'], 'Water_Level_mm')
         
         if not all([date_col, pipe_id_col, water_col]):
-            st.error(f"❌ Missing essential columns in water data. Found: Date={date_col}, Pipe_ID={pipe_id_col}, Water_Level={water_col}")
             return None
         
         # Standardize column names
@@ -381,7 +366,6 @@ def clean_water_data(df, farm_pipe_mapping):
         unique_pipes_in_water = df_clean['Pipe_ID'].nunique()
         unique_farms_in_water = df_clean['Farm_ID'].nunique()
         
-        st.success(f"✅ Water data summary:")
         st.success(f"   - Unique pipes with data: {unique_pipes_in_water}")
         st.success(f"   - Unique farms with data: {unique_farms_in_water}")
         st.success(f"   - Date range: {df_clean['Date'].min().date()} to {df_clean['Date'].max().date()}")
@@ -389,7 +373,6 @@ def clean_water_data(df, farm_pipe_mapping):
         return df_clean[['Date', 'Farm_ID', 'Pipe_ID', 'Water_Level_mm']]
         
     except Exception as e:
-        st.error(f"❌ Error cleaning water data: {str(e)}")
         st.exception(e)
         return None
 
@@ -463,6 +446,7 @@ def validate_compliance_logic():
     })
     result_1 = analyze_pipe_compliance(test_data_1)
     test_results.append(f"Test 1 - Single reading 150mm: {'✅ PASS' if result_1['compliant'] else '❌ FAIL'}")
+    test_results.append(f"Test 1 - Single reading 150mm: {'1 PASS' if result_1['compliant'] else '0 FAIL'}")
     
     # Test 2: Single reading >200mm should be non-compliant
     test_data_2 = pd.DataFrame({
@@ -471,6 +455,7 @@ def validate_compliance_logic():
     })
     result_2 = analyze_pipe_compliance(test_data_2)
     test_results.append(f"Test 2 - Single reading 250mm: {'❌ FAIL (Expected)' if not result_2['compliant'] else '✅ UNEXPECTED PASS'}")
+    test_results.append(f"Test 2 - Single reading 250mm: {'0 FAIL (Expected)' if not result_2['compliant'] else '1 UNEXPECTED PASS'}")
     
     # Test 3: Multiple readings, all ≤200mm with one ≤100mm should be compliant
     test_data_3 = pd.DataFrame({
@@ -480,6 +465,8 @@ def validate_compliance_logic():
     result_3 = analyze_pipe_compliance(test_data_3)
     test_results.append(f"Test 3 - Multiple readings [80, 150]: {'✅ PASS' if result_3['compliant'] else '❌ FAIL'}")
     
+    test_results.append(f"Test 3 - Multiple readings [80, 150]: {'1 PASS' if result_3['compliant'] else '0 FAIL'}")
+
     # Test 4: Multiple readings, all ≤200mm but none ≤100mm should be non-compliant
     test_data_4 = pd.DataFrame({
         'Date': [pd.Timestamp('2025-01-01'), pd.Timestamp('2025-01-02')],
@@ -488,6 +475,8 @@ def validate_compliance_logic():
     result_4 = analyze_pipe_compliance(test_data_4)
     test_results.append(f"Test 4 - Multiple readings [150, 180]: {'❌ FAIL (Expected)' if not result_4['compliant'] else '✅ UNEXPECTED PASS'}")
     
+    test_results.append(f"Test 4 - Multiple readings [150, 180]: {'0 FAIL (Expected)' if not result_4['compliant'] else '1 UNEXPECTED PASS'}")
+
     return test_results
 
 def analyze_farm_compliance(master_df, water_df, farm_pipe_mapping, start_date, end_date):
@@ -565,6 +554,7 @@ def analyze_farm_compliance(master_df, water_df, farm_pipe_mapping, start_date, 
                 'Farmer_Name': farm_data['Farmer_Name'],
                 'Group': farm_data['Group'],
                 'Valid_Farm': '✅' if is_valid_farm else '❌',  # NEW: Valid farm indicator
+                'Valid_Farm': '1' if is_valid_farm else '0',  # NEW: Valid farm indicator
                 'Total_Incentive_Acres': farm_data['Incentive_Acres'],
                 'All_Pipe_IDs': ', '.join(farm_pipe_codes) if farm_pipe_codes else 'None',
                 'Total_Assigned_Pipes': len(farm_pipe_codes),  # NEW: Total assigned
@@ -581,7 +571,6 @@ def analyze_farm_compliance(master_df, water_df, farm_pipe_mapping, start_date, 
         return pd.DataFrame(results)
         
     except Exception as e:
-        st.error(f"❌ Error analyzing farm compliance: {str(e)}")
         st.exception(e)
         return None
 
@@ -678,6 +667,7 @@ def analyze_weekly_compliance(master_df, water_df, farm_pipe_mapping, start_date
                     'Farmer_Name': farm_data['Farmer_Name'],
                     'Group': farm_data['Group'],
                     'Valid_Farm': '✅' if is_valid_farm else '❌',  # NEW: Valid farm indicator
+                    'Valid_Farm': '1' if is_valid_farm else '0',  # NEW: Valid farm indicator
                     'Payment_Eligible': farm_data['Payment_Eligible'],
                     'Total_Incentive_Acres': farm_data['Incentive_Acres'],
                     'Assigned_Pipe_IDs': ', '.join(farm_pipe_codes),
@@ -700,6 +690,7 @@ def analyze_weekly_compliance(master_df, water_df, farm_pipe_mapping, start_date
         
     except Exception as e:
         st.error(f"❌ Error analyzing weekly compliance: {str(e)}")
+        st.error(f"0 Error analyzing weekly compliance: {str(e)}")
         st.exception(e)
         return None
 
@@ -794,6 +785,7 @@ def create_pipe_readings_table(master_df, water_df, farm_pipe_mapping, start_dat
                 'Farmer_Name': farm_data['Farmer_Name'],
                 'Group': farm_data['Group'],
                 'Valid_Farm': '✅' if is_valid_farm else '❌',  # NEW: Valid farm indicator
+                'Valid_Farm': '1' if is_valid_farm else '0',  # NEW: Valid farm indicator
                 **pipe_columns,
                 'Comments': comments
             })
@@ -802,6 +794,7 @@ def create_pipe_readings_table(master_df, water_df, farm_pipe_mapping, start_dat
         
     except Exception as e:
         st.error(f"❌ Error creating pipe readings table: {str(e)}")
+        st.error(f"0 Error creating pipe readings table: {str(e)}")
         return None
 
 def create_pipe_summary_table(master_df, water_df, farm_pipe_mapping, start_date, end_date):
@@ -831,6 +824,7 @@ def create_pipe_summary_table(master_df, water_df, farm_pipe_mapping, start_date
             ]
             is_valid_farm = len(pipes_with_data) > 0
             farm_valid_status = '✅' if is_valid_farm else '❌'
+            farm_valid_status = '1' if is_valid_farm else '0'
             
             # Process each pipe assigned to this farm
             for pipe_id in farm_pipe_codes:
@@ -865,6 +859,8 @@ def create_pipe_summary_table(master_df, water_df, farm_pipe_mapping, start_date
                 # Determine if pipe is valid (has at least 1 reading)
                 valid_pipe_status = '✅' if total_readings >= 1 else '❌'
                 
+                valid_pipe_status = '1' if total_readings >= 1 else '0'
+
                 # Determine compliance for this pipe
                 compliance_status = "No Data"
                 if len(pipe_data) >= 1:
@@ -890,7 +886,6 @@ def create_pipe_summary_table(master_df, water_df, farm_pipe_mapping, start_date
         return pd.DataFrame(results)
         
     except Exception as e:
-        st.error(f"❌ Error creating pipe summary table: {str(e)}")
         return None
 
 def create_village_summary(results_df):
@@ -898,6 +893,7 @@ def create_village_summary(results_df):
     try:
         # Filter to only valid farms for compliance calculations
         valid_farms_df = results_df[results_df['Valid_Farm'] == '✅']
+        valid_farms_df = results_df[results_df['Valid_Farm'] == '1']
         
         village_summary = results_df.groupby('Village').agg({
             'Farm_ID': 'count',
@@ -936,7 +932,6 @@ def create_village_summary(results_df):
         return village_summary
         
     except Exception as e:
-        st.error(f"❌ Error creating village summary: {str(e)}")
         return None
 
 def create_payment_summary(results_df):
@@ -956,7 +951,6 @@ def create_payment_summary(results_df):
         return payment_summary
         
     except Exception as e:
-        st.error(f"❌ Error creating payment summary: {str(e)}")
         return None
 
 # Main App Interface
@@ -968,10 +962,8 @@ with st.sidebar.expander("🔑 Google Sheets Setup", expanded=False):
     credentials_dict = get_credentials_from_secrets()
     
     if credentials_dict is None:
-        st.error("❌ Failed to load credentials from secrets.toml")
         st.stop()
     else:
-        st.success("✅ Credentials loaded")
     
     sheet_url = app_config["sheet_url"]
     worksheet_name = app_config["worksheet_name"]
@@ -1005,7 +997,6 @@ if sheet_url and (refresh_data or 'master_df_cache' not in st.session_state):
             st.session_state['master_df_cache'] = master_df
             st.session_state['farm_pipe_mapping_cache'] = farm_pipe_mapping
         else:
-            st.sidebar.error("❌ Failed to process master data")
 elif 'master_df_cache' in st.session_state:
     master_df = st.session_state['master_df_cache']
     farm_pipe_mapping = st.session_state['farm_pipe_mapping_cache']
@@ -1013,7 +1004,6 @@ elif 'master_df_cache' in st.session_state:
 # Display master data status
 if master_df is not None:
     with st.sidebar:
-        st.success(f"✅ Master: {len(master_df)} farms")
         group_dist = master_df['Group'].value_counts()
         st.write("**Groups:**")
         for group, count in group_dist.items():
@@ -1029,7 +1019,6 @@ if water_file and farm_pipe_mapping is not None:
     if raw_water is not None:
         water_df = clean_water_data(raw_water, farm_pipe_mapping)
         if water_df is not None:
-            st.sidebar.success(f"✅ Water: {len(water_df)} measurements")
 
 # Main Analysis Section
 if master_df is not None and water_df is not None and farm_pipe_mapping is not None:
@@ -1101,6 +1090,8 @@ if master_df is not None and water_df is not None and farm_pipe_mapping is not N
                     with col2:
                         valid_farmers = len(results_df[results_df['Valid_Farm'] == '✅'])
                         st.metric("✅ Valid Farms", f"{valid_farmers}/{total_farmers}")
+                        valid_farmers = len(results_df[results_df['Valid_Farm'] == '1'])
+                        st.metric("1 Valid Farms", f"{valid_farmers}/{total_farmers}")
                     
                     with col3:
                         payment_eligible = len(results_df[results_df['Final_Incentive_Amount'] > 0])
@@ -1113,6 +1104,7 @@ if master_df is not None and water_df is not None and farm_pipe_mapping is not N
                     with col5:
                         # Calculate avg compliance only for valid farms
                         valid_farms_df = results_df[results_df['Valid_Farm'] == '✅']
+                        valid_farms_df = results_df[results_df['Valid_Farm'] == '1']
                         if len(valid_farms_df) > 0:
                             avg_compliance = valid_farms_df['Farm_Proportion_Passing'].mean()
                             st.metric("📈 Avg Compliance (Valid)", f"{avg_compliance:.1%}")
@@ -1172,6 +1164,7 @@ if master_df is not None and water_df is not None and farm_pipe_mapping is not N
                     
                     # Filter to only valid farms for compliance calculations
                     valid_farms_df = results_df[results_df['Valid_Farm'] == '✅']
+                    valid_farms_df = results_df[results_df['Valid_Farm'] == '1']
                     
                     summary_df = results_df.groupby('Group').agg({
                         'Farm_ID': 'count',
@@ -1244,6 +1237,7 @@ if master_df is not None and water_df is not None and farm_pipe_mapping is not N
                             # Remove rupee sign, keep only numeric value
                             weekly_display['Final_Incentive_Amount'] = weekly_display['Final_Incentive_Amount'].round(0).astype(int)
                             weekly_display['Payment_Eligible'] = weekly_display['Payment_Eligible'].apply(lambda x: "✅" if x else "❌")
+                            weekly_display['Payment_Eligible'] = weekly_display['Payment_Eligible'].apply(lambda x: "1" if x else "0")
                             
                             # Select columns for display (FIXED: Include new columns)
                             weekly_display_cols = [
@@ -1342,6 +1336,7 @@ if master_df is not None and water_df is not None and farm_pipe_mapping is not N
                             with col2:
                                 compliant_pipes = len(pipe_summary_df[pipe_summary_df['Abiding_AWD_method'] == 1])
                                 st.metric("✅ Abiding AWD", f"{compliant_pipes}/{total_pipes}")
+                                st.metric("1 Abiding AWD", f"{compliant_pipes}/{total_pipes}")
                             
                             with col3:
                                 no_data_pipes = len(pipe_summary_df[pipe_summary_df['Abiding_AWD_method'] == 'No Data'])
@@ -1566,7 +1561,6 @@ if master_df is not None and water_df is not None and farm_pipe_mapping is not N
                             if farm_detail['Non_Compliant_Pipe_IDs'] != 'None':
                                 st.error(f"⚠️ Non-compliant pipes: {farm_detail['Non_Compliant_Pipe_IDs']}")
                             else:
-                                st.success("✅ All valid pipes are compliant!")
                     
                     # Data Quality Analysis
                     with st.expander("📈 Data Quality & Coverage Analysis", expanded=False):
@@ -1607,7 +1601,6 @@ if master_df is not None and water_df is not None and farm_pipe_mapping is not N
                             st.error(f"**{len(farms_no_valid_pipes)} farms have NO valid pipes (≥2 readings):**")
                             st.dataframe(farms_no_valid_pipes[['Village', 'Farm_ID', 'Farmer_Name', 'Group', 'All_Pipe_IDs', 'Total_Assigned_Pipes']], use_container_width=True)
                         else:
-                            st.success("✅ All farms have at least one valid pipe!")
                         
                         # Farms with partial data
                         farms_partial_data = results_df[
@@ -1659,7 +1652,6 @@ if master_df is not None and water_df is not None and farm_pipe_mapping is not N
                         
                         st.dataframe(group_performance, use_container_width=True)
             else:
-                st.error("❌ No results generated. Please check your data.")
 
 else:
     if master_df is None or farm_pipe_mapping is None:
@@ -1670,12 +1662,10 @@ else:
 # Information sections (UPDATED)
 with st.expander("📏 Compliance Criteria (UPDATED)", expanded=False):
     st.markdown("""
-    ### ✅ **UPDATED** Pipe Compliance Requirements:
     
     **For Multiple Readings (≥2 measurements):**
     1. **All readings ≤ 200mm**
     2. **At least one reading ≤ 100mm** 
-    3. **~~No gap constraint~~** ❌ (REMOVED)
     
     **🆕 For Single Reading (1 measurement):**
     1. **Reading ≤ 200mm** (automatically compliant)
@@ -1683,7 +1673,6 @@ with st.expander("📏 Compliance Criteria (UPDATED)", expanded=False):
     ### 🆕 **UPDATED** Valid Farm & Pipe Definition:
     - **Valid Pipe**: Pipe with ≥1 reading in the period
     - **Valid Farm**: Farm with ≥1 pipe having ≥1 reading in the period
-    - **Display**: ✅ for valid farms/pipes, ❌ for invalid
     - **Compliance Averages**: Calculated ONLY on valid farms
     
     ### 💰 **UPDATED** Payment Logic:
@@ -1700,8 +1689,6 @@ with st.expander("📏 Compliance Criteria (UPDATED)", expanded=False):
     **4. Valid Farm Filter**: Only farms with ≥1 valid pipe shown as valid
     
     **Example**: Farm with 5 assigned pipes, 3 pipes have ≥1 reading, 2 compliant  
-    - **Compliance**: 2/3 = 66.7% ✅
-    - **Valid Farm**: ✅ (has valid pipes)
     - **Included in averages**: Yes
     """)
 
@@ -1715,12 +1702,12 @@ with st.expander("👥 Group Assignment Logic", expanded=False):
     5. **Map Water Data**: Link water readings to farms via pipe assignments
     
     ### 📊 Final Groups:
-    - **A Complied** → Payment Eligible ✅
-    - **A Non Complied** → No Payment ❌
-    - **B Complied** → No Payment ❌
-    - **B Non Complied** → No Payment ❌
-    - **C Complied** → No Payment ❌
-    - **C Non Complied** → No Payment ❌
+    - **A Complied** → Payment Eligible 1
+    - **A Non Complied** → No Payment 0
+    - **B Complied** → No Payment 0
+    - **B Non Complied** → No Payment 0
+    - **C Complied** → No Payment 0
+    - **C Non Complied** → No Payment 0
     """)
 
 with st.expander("📊 Analysis Features & Tables (UPDATED)", expanded=False):
